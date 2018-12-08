@@ -1,0 +1,8 @@
+{:paths ["src"]
+ :deps {org.clojure/clojure {:mvn/version "1.10.0-beta8"}
+        org.clojure/clojurescript {:mvn/version "1.10.339"}
+        org.clojure/core.async {:mvn/version "0.4.474"}}
+ :aliases {:dev {:extra-paths ["dev" "test" "target" "resources"]
+                 :extra-deps {com.bhauman/figwheel-main {:mvn/version "0.1.9"}
+                              orchestra {:mvn/version "2018.09.10-1"}}}
+           :test {:extra-deps {lambdaisland/kaocha {:mvn/version "0.0-176"}}}}}
