@@ -11,6 +11,10 @@
              :clj Exception.)
           message)))
 
+(defn- now []
+  #?(:cljs (.getTime (js/Date.))
+     :clj (.toEpochMilli (java.time.Instant/now))))
+
 (defn- get-dep [path sources param]
   (when (::data-source/dep (meta param))
     (if (vector? param)
@@ -112,25 +116,38 @@
 (defn- fetch-data [path source]
   (a/go (prepare-result path source (a/<! (data-source/fetch source)))))
 
-(defn- add-results [m results]
-  (loop [[{:keys [path result]} & rest] (filter #(-> % :result ::result/success?) results)
+(defn- add-results [m results {:keys [cache-put]}]
+  (loop [[{:keys [path source result]} & rest] (filter #(-> % :result ::result/success?) results)
          m m]
+    (when (and (fn? cache-put) result)
+      (cache-put path source (-> result
+                                 (dissoc ::result/attempts)
+                                 (assoc :pharmacist.cache/cached-at (now)))))
     (if path
       (recur rest (assoc-in m path (::result/data result)))
       m)))
 
-(defn- prep-fill [prescription params]
+(defn- prep-fill [prescription {:keys [params]}]
   (let [sources (resolve-deps prescription)]
     (when (deps-valid? sources params)
       {:batches (partition-fetches sources params)
        :sources sources
        :params (or params {})})))
 
-(defn- process-batch [sources batch res processor]
+(defn- prep-cached [path source cached]
+  {:path path :source source :result (assoc cached ::result/attempts 0)})
+
+(defn- get-cached [cache-get path source async?]
+  (when-let [cached (and (fn? cache-get) (cache-get [path] source))]
+    (let [res (prep-cached path source cached)]
+      (if async? (a/go res) res))))
+
+(defn- process-batch [sources batch res {:keys [async? cache-get]}]
   (->> (select-keys sources batch)
        (filter (partial satisfied? res))
        (map (fn [[path source]]
-              (processor path (provide-deps res source))))))
+              (or (get-cached cache-get [path] source async?)
+                  ((if async? fetch-data fetch-data-sync) path (provide-deps res source)))))))
 
 (defn- unused [sources attempted]
   (set/difference
@@ -163,37 +180,34 @@
                               res)
                             completed)))))))
 
-(defn fill-sync [prescription & [{:keys [cache-get cache-put params]}]]
-  (let [{:keys [batches sources params]} (prep-fill prescription params)]
+(defn fill-sync [prescription & [{:keys [params] :as opt}]]
+  (let [{:keys [batches sources params]} (prep-fill prescription opt)]
     (loop [[batch & batches] batches
            attempted-sources []
            res params]
       (if batch
-        (let [results (process-batch sources batch res fetch-data-sync)]
-          (recur batches (concat attempted-sources results) (add-results res results)))
+        (let [results (process-batch sources batch res (assoc opt :async? false))]
+          (recur batches (concat attempted-sources results) (add-results res results opt)))
         (prepare-combined-result sources attempted-sources res)))))
 
-(defn- fill-1 [{:keys [batches sources params]}]
+(defn- fill-1 [{:keys [batches sources]} {:keys [params] :as opt}]
   (let [ch (a/chan)]
     (a/go
       (loop [[batch & batches] batches
              attempted-sources []
              res params]
-        (prn batch)
-        (prn attempted-sources)
-        (prn res)
         (when batch
-          (let [ports (process-batch sources batch res fetch-data)
+          (let [ports (process-batch sources batch res (assoc opt :async? true))
                 results (a/<! (realize-results ports ch))]
-            (recur batches (concat attempted-sources results) (add-results res results)))))
+            (recur batches (concat attempted-sources results) (add-results res results opt)))))
       (a/close! ch))
     ch))
 
-(defn fill [prescription & [{:keys [cache-get cache-put params]}]]
-  (fill-1 (prep-fill prescription params)))
+(defn fill [prescription & [opt]]
+  (fill-1 (prep-fill prescription opt) opt))
 
-(defn fill-collect [prescription & {:keys [params]}]
-  (let [{:keys [sources params] :as prepped} (prep-fill prescription params)
+(defn fill-collect [prescription & opt]
+  (let [{:keys [sources params] :as prepped} (prep-fill prescription opt)
         in-ch (fill-1 prepped)]
     (a/go-loop [attempted-sources []
                 res params]

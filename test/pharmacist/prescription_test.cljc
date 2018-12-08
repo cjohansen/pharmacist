@@ -1,6 +1,7 @@
 (ns pharmacist.prescription-test
   (:require [pharmacist.prescription :as sut]
             [pharmacist.data-source :as data-source]
+            [pharmacist.cache :as cache]
             [pharmacist.result :as result]
             [pharmacist.utils :refer [test-async test-within]]
             #?(:clj [clojure.test :refer [deftest testing is]]
@@ -353,3 +354,70 @@
                       ::data-source/deps #{:data-1}}
              :result {::result/success? false
                       ::result/attempts 0}}]))))
+
+(deftest cached-fill-test
+  (testing "fill gets cached data when available"
+    (test-async
+     (test-within 1000
+       (a/go
+         (let [prescription {::data-source/id ::test2
+                             ::data-source/params {:id 42}}
+               v (a/<! (sut/fill {:data-1 prescription}
+                                 (cache/atom-map (atom {(cache/cache-path prescription)
+                                                        {::result/success? true
+                                                         ::result/data {:input-params {:id 333}}}}))))]
+           (is (= {::result/success? true
+                   ::result/data {:input-params {:id 333}}
+                   ::result/attempts 0}
+                  (:result v))))))))
+
+  (testing "fill caches data when successful"
+    (test-async
+     (test-within 1000
+       (let [cache (atom {})]
+         (a/go
+           (a/<! (sut/fill {:data-1 {::data-source/id ::test2
+                                     ::data-source/params {:id 42}}}
+                           (cache/atom-map cache)))
+           (is (= {::result/success? true
+                   ::result/data {:input-params {:id 42}}}
+                  (-> @cache vals first (select-keys [::result/success? ::result/data])))))))))
+
+  (testing "fill does not cache unsuccessful data"
+    (test-async
+     (test-within 1000
+       (let [cache (atom {})]
+         (a/go
+           (a/<! (sut/fill {:data-1 {::data-source/id ::test2
+                                     ::data-source/params {:succeed? false}}}
+                           (cache/atom-map cache)))
+           (is (nil? (-> @cache vals first))))))))
+
+  (testing "fill-sync gets cached data when it exists"
+    (let [prescription {::data-source/id ::test2
+                        ::data-source/params {:id 42}}]
+      (is (= (-> {:data-1 prescription
+                  :data-2 {::data-source/id ::test2
+                           ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
+                 (sut/fill-sync (cache/atom-map (atom {(cache/cache-path prescription)
+                                                       {::result/success? true
+                                                        ::result/data {:input-params {:id 111}}}})))
+                 ::result/data)
+             {:data-1 {:input-params {:id 111}}
+              :data-2 {:input-params {:secondary-id 111}}}))))
+
+  (testing "fill-sync caches data when successful"
+    (let [cache (atom {})]
+      (sut/fill-sync {:data-1 {::data-source/id ::test2
+                               ::data-source/params {:id 42}}}
+                     (cache/atom-map cache))
+      (is (= {::result/success? true
+              ::result/data {:input-params {:id 42}}}
+             (-> @cache vals first (select-keys [::result/success? ::result/data]))))))
+
+  (testing "fill-sync does not cache unsuccessful data"
+    (let [cache (atom {})]
+      (sut/fill-sync {:data-1 {::data-source/id ::test2
+                               ::data-source/params {:succeed? false}}}
+                     (cache/atom-map cache))
+      (is (nil? (-> @cache vals first))))))
