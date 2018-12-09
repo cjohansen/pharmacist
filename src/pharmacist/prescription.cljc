@@ -188,8 +188,9 @@
           (recur batches (concat attempted-sources results) (add-results res results opt)))
         (prepare-combined-result sources attempted-sources res)))))
 
-(defn- fill-1 [{:keys [batches sources]} {:keys [params] :as opt}]
-  (let [ch (a/chan)]
+(defn fill [prescription & [opt]]
+  (let [{:keys [batches sources params]} (prep-fill prescription opt)
+        ch (a/chan)]
     (a/go
       (loop [[batch & batches] batches
              attempted-sources []
@@ -207,9 +208,6 @@
               (a/>! ch message)))))
       (a/close! ch))
     ch))
-
-(defn fill [prescription & [opt]]
-  (fill-1 (prep-fill prescription opt) opt))
 
 (defn collect [fill-ch]
   (a/go-loop [messages []
