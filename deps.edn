@@ -5,4 +5,5 @@
  :aliases {:dev {:extra-paths ["dev" "test" "target" "resources"]
                  :extra-deps {com.bhauman/figwheel-main {:mvn/version "0.1.9"}
                               orchestra {:mvn/version "2018.09.10-1"}}}
-           :test {:extra-deps {lambdaisland/kaocha {:mvn/version "0.0-176"}}}}}
+           :test {:extra-deps {lambdaisland/kaocha {:mvn/version "0.0-176"}}
+                  :main-opts ["-m" "kaocha.runner"]}}}
