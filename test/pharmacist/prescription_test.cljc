@@ -208,7 +208,11 @@
                              {::data-source/params ^::data-source/dep [:data-1]})))))
 
 (defmethod data-source/fetch ::test1 [{:keys [pharmacist.data-source/params]}]
-  (a/go (result/success {:input-params params})))
+  (a/go
+    (result/success {:input-params params})))
+
+(defmethod data-source/fetch ::fail1 [{:keys [pharmacist.data-source/params]}]
+  (a/go (result/failure {:error "Oops!!"})))
 
 (deftest fill-prescription-test
   (testing "Puts single data source result on channel"
@@ -236,22 +240,41 @@
            (is (= {::result/success? true
                    ::result/data {:input-params {:id 23}}
                    ::result/attempts 1}
-                  (:result v)))))))))
+                  (:result v))))))))
+
+  (testing "Emits message for un-attempted sources"
+    (test-async
+     (test-within 1000
+       (a/go
+         (let [ch (sut/fill {:data-1 {::data-source/id ::fail1
+                                      ::data-source/params {:id 42}}
+                             :data-2 {::data-source/id ::test1
+                                      ::data-source/params ^::data-source/dep [:data-1]}})
+               messages (loop [messages []]
+                          (if-let [message (a/<! ch)]
+                            (recur (conj messages message))
+                            messages))]
+           (is (= [[:data-1] [:data-2]]
+                  (mapv :path messages)))))))))
 
 (deftest collect-test
   (testing "Collects all successful events into a map"
     (test-async
      (test-within 1000
        (a/go
-         (is (= {:data-1 {:input-params {:id 42}}
-                 :data-2 {:input-params {:id 13}}}
-                (-> {:data-1 {::data-source/id ::test1
-                              ::data-source/params {:id 42}}
-                     :data-2 {::data-source/id ::test1
-                              ::data-source/params {:id 13}}}
-                    sut/fill-collect
-                    a/<!
-                    ::result/data)))))))
+         (prn "[===]")
+         (let [data (-> {:data-1 {::data-source/id ::test1
+                                  ::data-source/params {:id 42}}
+                         :data-2 {::data-source/id ::test1
+                                  ::data-source/params {:id 13}}}
+                        sut/fill
+                        sut/collect
+                        a/<!
+                        ::result/data)]
+           (prn "[---]")
+           (is (= {:data-1 {:input-params {:id 42}}
+                   :data-2 {:input-params {:id 13}}}
+                  data)))))))
 
   (testing "Provides dependencies to following batches"
     (test-async
@@ -263,7 +286,8 @@
                               ::data-source/params {:id 42}}
                      :data-2 {::data-source/id ::test1
                               ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-                    sut/fill-collect
+                    sut/fill
+                    sut/collect
                     a/<!
                     ::result/data))))))))
 

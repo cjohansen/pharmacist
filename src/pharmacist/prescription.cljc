@@ -78,7 +78,7 @@
               :default true)))))))
 
 (defn- satisfied? [available [_ {:keys [pharmacist.data-source/deps] :as a}]]
-  (every? available deps))
+  (every? (or available #{}) deps))
 
 (defn partition-fetches [sources params]
   (loop [sources sources
@@ -149,36 +149,34 @@
               (or (get-cached cache-get [path] source async?)
                   ((if async? fetch-data fetch-data-sync) path (provide-deps res source)))))))
 
-(defn- unused [sources attempted]
-  (set/difference
-   (set (keys sources))
-   (set (map #(-> % :path first) attempted))))
+(defn- unused-sources [sources attempted]
+  (let [unused (set/difference
+                (set (keys sources))
+                (set (map #(-> % :path first) attempted)))]
+    (->> (select-keys sources unused)
+         (map (fn [[path source]]
+                {:path [path]
+                 :source source
+                 :result {::result/success? false
+                          ::result/attempts 0}})))))
 
 (defn- prepare-combined-result [sources attempted-sources res]
   {::result/success? (every? true? (map #(-> % :result ::result/success?) attempted-sources))
    ::result/data res
    ::result/sources (concat attempted-sources
-                            (->> (select-keys sources (unused sources attempted-sources))
-                                 (map (fn [[path source]]
-                                        {:path [path]
-                                         :source source
-                                         :result {::result/success? false
-                                                  ::result/attempts 0}}))))})
+                            (unused-sources sources attempted-sources))})
 
 (defn- realize-results [ports ch]
-  (let [port-count (count ports)]
-    (a/go-loop [res []
-                completed 0]
+  (a/go-loop [ports ports
+              res []]
+    (if (< 0 (count ports))
       (let [[val port] (a/alts! ports)]
         (cond
-          (= completed port-count) res
-          (nil? val) (recur res (inc completed))
+          (= 0 (count ports)) res
+          (nil? val) (recur (remove #(= % port) ports) res)
           :default (let [{:keys [path source result]} val]
-                     (a/put! ch val)
-                     (recur (if (result/success? result)
-                              (conj res val)
-                              res)
-                            completed)))))))
+                     (recur (remove #(= % port) ports) (conj res val)))))
+      res)))
 
 (defn fill-sync [prescription & [{:keys [params] :as opt}]]
   (let [{:keys [batches sources params]} (prep-fill prescription opt)]
@@ -196,21 +194,26 @@
       (loop [[batch & batches] batches
              attempted-sources []
              res params]
-        (when batch
+        (if batch
           (let [ports (process-batch sources batch res (assoc opt :async? true))
                 results (a/<! (realize-results ports ch))]
-            (recur batches (concat attempted-sources results) (add-results res results opt)))))
+            (loop [[result & rest] results]
+              (when result
+                (a/>! ch result)
+                (recur rest)))
+            (recur batches (concat attempted-sources results) (add-results res results opt)))
+          (let [unused (unused-sources sources attempted-sources)]
+            (doseq [message (unused-sources sources attempted-sources)]
+              (a/>! ch message)))))
       (a/close! ch))
     ch))
 
 (defn fill [prescription & [opt]]
   (fill-1 (prep-fill prescription opt) opt))
 
-(defn fill-collect [prescription & opt]
-  (let [{:keys [sources params] :as prepped} (prep-fill prescription opt)
-        in-ch (fill-1 prepped)]
-    (a/go-loop [attempted-sources []
-                res params]
-      (if-let [result (a/<! in-ch)]
-        (recur (conj attempted-sources result) (add-results res [result]))
-        (prepare-combined-result sources attempted-sources res)))))
+(defn collect [fill-ch]
+  (a/go-loop [messages []
+              res {}]
+    (if-let [result (a/<! fill-ch)]
+      (recur (conj messages result) (add-results res [result] {}))
+      (prepare-combined-result {} messages res))))
