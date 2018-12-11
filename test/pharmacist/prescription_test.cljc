@@ -154,22 +154,22 @@
                              :data-2 {::data-source/params {:a ^::data-source/dep [:config :something]}}})
           {:config {}})))))
 
-(deftest partition-fetches
+(deftest batches-test
   (testing "Loads everything in parallel with no deps"
     (is (= [#{:data-1 :data-2 :data-3}]
-           (sut/partition-fetches {:data-1 {}
+           (sut/batches {:data-1 {}
                                    :data-2 {}
                                    :data-3 {}} {}))))
 
   (testing "Loads sources with no dependencies first"
     (is (= [#{:data-1 :data-2} #{:data-3}]
-           (sut/partition-fetches {:data-1 {}
+           (sut/batches {:data-1 {}
                                    :data-2 {}
                                    :data-3 {::data-source/deps #{:data-1}}} {}))))
 
   (testing "Loads sources in batches"
     (is (= [#{:data-1 :data-2} #{:data-3 :data-4} #{:data-5 :data-6}]
-           (sut/partition-fetches {:data-1 {}
+           (sut/batches {:data-1 {}
                                    :data-2 {}
                                    :data-3 {::data-source/deps #{:data-1}}
                                    :data-4 {::data-source/deps #{:data-1 :data-2}}
@@ -178,7 +178,7 @@
 
   (testing "Loads data sources only depending on params first"
     (is (= [#{:data-1} #{:data-2}]
-           (sut/partition-fetches
+           (sut/batches
             (sut/resolve-deps
              {:data-1 {::data-source/id ::test1
                        ::data-source/params {:id ^::data-source/dep [:config :id]}}
@@ -188,7 +188,7 @@
 
   (testing "Resolves deps and loads data in batches"
     (is (= [#{:data-1} #{:data-2}]
-           (sut/partition-fetches
+           (sut/batches
             (sut/resolve-deps
              {:data-1 {::data-source/id ::test1
                        ::data-source/params {:id 42}}

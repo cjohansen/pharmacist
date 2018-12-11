@@ -80,7 +80,7 @@
 (defn- satisfied? [available [_ {:keys [pharmacist.data-source/deps] :as a}]]
   (every? (or available #{}) deps))
 
-(defn partition-fetches [sources params]
+(defn batches [sources params]
   (loop [sources sources
          fetch-order []]
     (if-not (seq sources)
@@ -150,7 +150,7 @@
 (defn- prep-fill [prescription {:keys [params]}]
   (let [sources (resolve-deps prescription)]
     (when (deps-valid? sources params)
-      {:batches (partition-fetches sources params)
+      {:batches (batches sources params)
        :sources sources
        :params (or params {})})))
 
