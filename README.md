@@ -241,7 +241,6 @@ If it does fail, you will still be notified via the channel returned from
 {::result/success? false
  ::result/data {:error "Network failure"}
  ::result/attempts 1
- ::result/retries 3
  ::result/completed? false}
 ```
 

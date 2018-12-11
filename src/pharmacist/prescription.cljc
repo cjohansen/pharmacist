@@ -105,16 +105,36 @@
                             [k v])))
                    (into {}))))))
 
+(defn- retryable? [source result]
+  (and
+   (get result ::result/retryable? true)
+   (if-let [retryable? (::data-source/retryable? source)]
+     (retryable? result)
+     true)
+   (number? (::data-source/retries source))
+   (<= (::result/attempts result) (::data-source/retries source))))
+
 (defn- prepare-result [path source result]
   {:path (if (coll? path) path [path])
    :source source
-   :result (assoc result ::result/attempts 1)})
+   :result result})
 
 (defn- fetch-data-sync [path source]
-  (prepare-result path source (data-source/fetch-sync source)))
+  (loop [attempts 1]
+    (let [result (assoc (data-source/fetch-sync source) ::result/attempts attempts)]
+      (if (and (not (result/success? result))
+               (retryable? source result))
+        (recur (inc attempts))
+        (prepare-result path source result)))))
 
 (defn- fetch-data [path source]
-  (a/go (prepare-result path source (a/<! (data-source/fetch source)))))
+  (a/go
+    (loop [attempts 1]
+      (let [result (assoc (a/<! (data-source/fetch source)) ::result/attempts attempts)]
+        (if (and (not (result/success? result))
+                 (retryable? source result))
+          (recur (inc attempts))
+          (prepare-result path source result))))))
 
 (defn- add-results [m results {:keys [cache-put]}]
   (loop [[{:keys [path source result]} & rest] (filter #(-> % :result ::result/success?) results)

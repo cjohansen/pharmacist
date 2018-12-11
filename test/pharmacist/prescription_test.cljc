@@ -445,3 +445,117 @@
                                ::data-source/params {:succeed? false}}}
                      (cache/atom-map cache))
       (is (nil? (-> @cache vals first))))))
+
+(def stub-data (atom []))
+
+(defmethod data-source/fetch-sync :stub1 [prescription]
+  (let [res (first @stub-data)]
+    (swap! stub-data rest)
+    res))
+
+(defmethod data-source/fetch :stub2 [prescription]
+  (a/go
+    (let [res (first @stub-data)]
+      (swap! stub-data rest)
+      res)))
+
+(deftest retry-test
+  (testing "Retries sync source"
+    (reset! stub-data [{::result/success? false}
+                       {::result/success? true
+                        ::result/data {:id 6}}])
+    (sut/fill-sync {:data-1 {::data-source/id :stub1
+                             ::data-source/retries 3}})
+    (is (= [] @stub-data)))
+
+  (testing "Gives up after the afforded retries"
+    (reset! stub-data [{::result/success? false}
+                       {::result/success? false}
+                       {::result/success? false}
+                       {::result/success? true
+                        ::result/data {:id 6}}])
+    (sut/fill-sync {:data-1 {::data-source/id :stub1
+                             ::data-source/retries 2}})
+    (is (= 1 (count @stub-data))))
+
+  (testing "Stops retrying if result is not retryable"
+    (reset! stub-data [{::result/success? false}
+                       {::result/success? false
+                        ::result/retryable? false}
+                       {::result/success? false}
+                       {::result/success? true
+                        ::result/data {:id 6}}])
+    (sut/fill-sync {:data-1 {::data-source/id :stub1
+                             ::data-source/retries 2}})
+    (is (= 2 (count @stub-data))))
+
+  (testing "Indicates number of attempts in result"
+    (reset! stub-data [{::result/success? false}
+                       {::result/success? false}
+                       {::result/success? false}
+                       {::result/success? true
+                        ::result/data {:id 6}}])
+    (is (= (-> (sut/fill-sync {:data-1 {::data-source/id :stub1
+                                        ::data-source/retries 3}})
+               ::result/sources
+               first
+               :result
+               ::result/attempts)
+           4)))
+
+  (testing "Retries async source"
+    (test-async
+     (test-within 1000
+       (a/go
+         (reset! stub-data [{::result/success? false}
+                            {::result/success? true
+                             ::result/data {:id 6}}])
+         (is (map? (a/<! (sut/fill {:data-1 {::data-source/id :stub2
+                                             ::data-source/retries 3}}))))
+         (is (= [] @stub-data))))))
+
+  (testing "Gives up async after the afforded retries"
+    (test-async
+     (test-within 1000
+       (a/go
+         (reset! stub-data [{::result/success? false}
+                            {::result/success? false}
+                            {::result/success? false}
+                            {::result/success? true
+                             ::result/data {:id 6}}])
+         (a/<! (sut/fill {:data-1 {::data-source/id :stub2
+                                   ::data-source/retries 2}}))
+         (is (= 1 (count @stub-data)))))))
+
+  (testing "Stops retrying async fetch if result is not retryable"
+    (test-async
+     (test-within 1000
+       (a/go
+         (reset! stub-data [{::result/success? false}
+                            {::result/success? false
+                             ::result/retryable? false}
+                            {::result/success? false}
+                            {::result/success? true
+                             ::result/data {:id 6}}])
+         (a/<! (sut/fill {:data-1 {::data-source/id :stub2
+                                   ::data-source/retries 2}}))
+         (is (= 2 (count @stub-data)))))))
+
+  (testing "Indicates number of attempts in async result"
+    (test-async
+     (test-within 1000
+       (a/go
+         (reset! stub-data [{::result/success? false}
+                            {::result/success? false}
+                            {::result/success? false}
+                            {::result/success? true
+                             ::result/data {:id 6}}])
+         (is (= (-> (sut/fill {:data-1 {::data-source/id :stub2
+                                        ::data-source/retries 3}})
+                    sut/collect
+                    a/<!
+                    ::result/sources
+                    first
+                    :result
+                    ::result/attempts)
+                4)))))))
