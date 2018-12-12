@@ -526,9 +526,12 @@ each.
 (defschema :ghibli/film
   :movie/id {::schema/unique ::schema/identity
              ::schema/spec uuid?
-             ::schema/coerce uuid}
-  :movie/title {::schema/spec string?}
-  :movie/description {::schema/spec string?}
+             ::schema/coerce uuid
+             ::schema/source :id}
+  :movie/title {::schema/spec string?
+                ::schema/source :title}
+  :movie/description {::schema/spec string?
+                      ::schema/source :description}
   :movie/release-date {::schema/spec string?
                        ::schema/source :release_date})
 
@@ -543,9 +546,12 @@ each.
 (defschema :ghibli/person
   :person/id {::schema/unique ::schema/identity
               ::schema/spec uuid?
-              ::schema/coerce uuid}
-  :person/name {::schema/spec string?}
-  :person/age {::schema/spec number?})
+              ::schema/coerce uuid
+              ::schema/source :id}
+  :person/name {::schema/spec string?
+                ::schema/source :name}
+  :person/age {::schema/spec number?
+               ::schema/source :age})
 ```
 
 The `:ghibli/film` data source now includes prescriptions in its result. By
