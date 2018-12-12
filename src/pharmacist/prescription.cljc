@@ -4,6 +4,7 @@
             [clojure.string :as str]
             [pharmacist.data-source :as data-source]
             [pharmacist.result :as result]
+            [pharmacist.schema :as schema]
             [clojure.set :as set]))
 
 (defn- err [message]
@@ -121,8 +122,10 @@
   (let [path (if (coll? path) path [path])]
     {:path path
      :source source
-     :result (-> result
-                 (update ::result/prescriptions prefix-paths path))}))
+     :result (if (seq (::result/prescriptions result))
+               (-> result
+                  (update ::result/prescriptions prefix-paths path))
+               result)}))
 
 (defn- fetch-data-sync [path source]
   (loop [attempts 1]
@@ -149,7 +152,9 @@
                                  (dissoc ::result/attempts)
                                  (assoc :pharmacist.cache/cached-at (now)))))
     (if path
-      (recur rest (assoc-in m path (::result/data result)))
+      (recur rest (assoc-in m path (schema/coerce-data
+                                    (::data-source/id source)
+                                    (::result/data result))))
       m)))
 
 (defn- prep-cached [path source cached]

@@ -4,10 +4,13 @@
             [pharmacist.cache :as cache]
             [pharmacist.result :as result]
             [pharmacist.utils :refer [test-async test-within]]
+            [pharmacist.schema :as schema]
             #?(:clj [clojure.test :refer [deftest testing is]]
                :cljs [cljs.test :refer [deftest testing is]])
             #?(:clj [clojure.core.async :as a]
-               :cljs [cljs.core.async :as a])))
+               :cljs [cljs.core.async :as a])
+            #?(:clj [clojure.spec.alpha :as s]
+               :cljs [cljs.spec.alpha :as s])))
 
 (deftest resolve-deps-test
   (testing "Ignores no dependencies"
@@ -590,3 +593,16 @@
                   ::result/sources
                   second
                   :result)))))
+
+(schema/defschema ::mapped-source :source1/entity
+  :source1/some-attr {::schema/source :some-attr}
+  :source1/entity {::schema/spec (s/keys :opt [:source1/some-attr])})
+
+(defmethod data-source/fetch-sync ::mapped-source [prescription]
+  (result/success {:some-attr "LOL"}))
+
+(deftest data-coercion-test
+  (testing "Maps result with defined schema"
+    (is (= {:data {:source1/some-attr "LOL"}}
+           (-> (sut/fill-sync {:data {::data-source/id ::mapped-source}})
+               ::result/data)))))

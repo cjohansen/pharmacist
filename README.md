@@ -38,7 +38,7 @@ with both synchronous and asynchronous sources. Some relevant examples include:
 - [Prescriptions](#prescriptions)
 - [Retries](#retry-on-failure)
 - [Caching](#caching)
-- [Mapping/coercion](#mapping-data)
+- [Mapping/coercion](#mapping-and-coercion)
 - [Nested data sources](#data-begets-data)
 - [Synchronous fetches](#synchronous-fetches)
 - [HTTP convenience function](#http-convenience-function)
@@ -360,12 +360,12 @@ different types of data should be cached etc.
 In the future, Pharmacist might provide tools for controlling caching on a
 per-result basis from data sources.
 
-## Mapping data
+## Mapping and coercion
 
-When consuming external data, we might want to map result sets to better fit our
-world-view. Mapping and type-coercion is handled by Pharmacist schemas, which
-can also be used to generate specs, validate payloads, and generate Datascript
-schemas.
+When consuming external data, we might want to map the keys and coerce the types
+of the result set to better fit our world-view. Mapping and type-coercion is
+handled by Pharmacist schemas, which can also be used to generate specs,
+validate payloads, and generate Datascript schemas.
 
 A schema specifies what parts of a data source result to extract, what data
 types to expect (enforcable through dev-time asserts), how to coerce data, and
@@ -375,34 +375,58 @@ how to map names. It also serves as documentation of an external source of data:
 (require '[pharmacist.schema :as schema :refer [defschema]]
          '[clojure.spec.alpha :as s])
 
-(defschema :spotify/playlist
-  :image/url {::schema/spec string?}
-  :image/width {::schema/spec int?}
-  :image/height {::schema/spec int?}
+(defschema :spotify/playlist :playlist/entity ;; 1
+  :image/url {::schema/spec string? ;; 2
+              ::schema/source :url} ;; 3
+  :image/width {::schema/spec int?
+                ::schema/source :width
+                ::schema/coerce schema/parse-int} ;; 4
+  :image/height {::schema/spec int?
+                 ::schema/source :height}
 
-  :playlist/id {::schema/unique ::schema/identity} ;; 1
-  :playlist/collaborative {::schema/spec boolean?} ;; 2
+  :playlist/id {::schema/unique ::schema/identity
+                ::schema/source schema/infer-ns} ;; 5
+  :playlist/collaborative {::schema/spec boolean?
+                           ::schema/source :collaborative}
   :playlist/title {::schema/spec string?
-                   ::schema/source :name} ;; 3
-  :playlist/image {::schema/spec (s/keys :req [:image/url :image/width :image/height])} ;; 4
-  :playlist/images {::schema/spec (s/coll-of :playlist/image)}) ;; 5
+                   ::schema/source :name} ;; 6
+  :playlist/image {::schema/spec (s/keys :req [:image/url :image/width :image/height])} ;; 7
+  :playlist/images {::schema/spec (s/coll-of :playlist/image)
+                    ::schema/source :images} ;; 8
+  :playlist/entity {::schema/spec (s/keys :req [:playlist/id
+                                                :playlist/collaborative
+                                                :playlist/title
+                                                :playlist/images])})
 ```
 
-1. By default, namespaced keys will be attempted fetched from either the
-   namespaced key or the bare key, meaning that when Spotify returns JSON with
-   the `"id"` key, this schema will automatically map it to `:playlist/id`.
-2. A `clojure.spec.alpha` spec for `:playlist/collaborative` can be defined for
-   you (see below).
-3. Sometimes we want to rename properties from remote sources. This shows an
-   example of mapping `"name"` in the API payload to `:playlist/title` in our
-   local data.
-4. Key specs inform Pharmacist to look up and map nested data structures
-5. Collection specs inform Pharmacist to loop through `"images"` in the payload
+1. Define a schema to use for `{::data-source/id :spotify/playlist}` sources,
+   and use the `:playlist/entity` spec as the root mapper.
+2. A `clojure.spec.alpha` spec for `:image/url`. Provides documentation, and can
+   be used with asserts during development to verify assumptions about external
+   data.
+3. When consuming external data, it is often nice to be able to map keys to
+   idiomatic Clojure names, or, as in this case, to provide a namespace for the
+   key. This instructs Pharmacist to populate the `:image/url` key in the
+   resulting data from the `:id` attribute of the source data.
+4. `::schema/coerce` can be set to any function that takes a single argument -
+   the value to coerce - and returns a coerced value. If you are enforcing specs
+   during development, the coercer should produce a value that is compatible
+   with the spec.
+5. Some key mappings can be mechanically inferred. Pharmacist provides
+   convenience functions for inferral, e.g. `schema/infer-ns` infers a
+   namespaced key from its bare counterpart. In this case, `:playlist/id` will
+   be populated from `:id`. The `::schema/source` function is called with a map
+   and a key.
+6. Remote keys can be completely renamed as well. This shows an example of
+   mapping `:name` in the API payload to `:playlist/title` in our local data.
+7. Key specs inform Pharmacist to look up and map nested data structures
+8. Collection specs inform Pharmacist to loop through `:images` in the payload
    and map each one with the keys in the `:playlist/image` key spec.
 
 With this schema in place, data from the `::data-source/id :spotify/playlist`
-data source will be mapped accordingly. You can further utilize this schema if
-you want:
+data source will be automatically mapped when you call
+`prescription/fill`/`prescription/fill-sync`. You can further utilize this
+schema if you want:
 
 ```clj
 (require '[pharmacist.schema :as schema])
