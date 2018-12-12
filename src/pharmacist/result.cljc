@@ -8,7 +8,7 @@
 (s/def ::success? boolean?)
 (s/def ::path (s/coll-of keyword?))
 (s/def ::data any?)
-(s/def ::prescriptions (s/coll-of ::data-source/data-source))
+(s/def ::prescriptions (s/coll-of (s/tuple (s/coll-of keyword?) ::data-source/prescription)))
 (s/def ::result (s/keys :req [::success?]
                         :opt [::path ::data ::prescriptions]))
 

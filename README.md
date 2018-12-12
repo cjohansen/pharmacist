@@ -434,9 +434,9 @@ request.
 To take advantage of Pharmacist's prescription filling abilities, a data source
 can include new prescriptions in its result. If the result is a
 `::result/success?`, Pharmacist will queue up any new prescriptions from the
-`::result/prescription` key among the remaining sources. These new prescriptions
-can depend on exsiting prescriptions like any other. The resulting data will
-have paths prefixed with the parent source's path key.
+`::result/prescriptions` key among the remaining sources. These new
+prescriptions can depend on exsiting prescriptions like any other. The resulting
+data will have paths prefixed with the parent source's path key.
 
 For an example, let's fetch some data from an HTTP endpoint, and then
 recursively look up linked resources.

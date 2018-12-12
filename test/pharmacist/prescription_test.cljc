@@ -448,16 +448,16 @@
 
 (def stub-data (atom []))
 
-(defmethod data-source/fetch-sync :stub1 [prescription]
+(defn- stub-behavior []
   (let [res (first @stub-data)]
     (swap! stub-data rest)
     res))
 
+(defmethod data-source/fetch-sync :stub1 [prescription]
+  (stub-behavior))
+
 (defmethod data-source/fetch :stub2 [prescription]
-  (a/go
-    (let [res (first @stub-data)]
-      (swap! stub-data rest)
-      res)))
+  (a/go (stub-behavior)))
 
 (deftest retry-test
   (testing "Retries sync source"
@@ -559,3 +559,34 @@
                     :result
                     ::result/attempts)
                 4)))))))
+
+(defmethod data-source/fetch-sync :stub3-nested [prescription]
+  (stub-behavior))
+
+(defmethod data-source/fetch-sync :stub3 [prescription]
+  (result/success {:id 12} [[[:nested-source] {::data-source/id :stub3-nested}]]))
+
+(deftest nested-prescriptions-test
+  (testing "Does not fill nested prescription by default"
+    (is (= (select-keys (sut/fill-sync {:data-1 {::data-source/id :stub3}}) [::result/data ::result/success?])
+           {::result/data {:data-1 {:id 12}}
+            ::result/success? true})))
+
+  (testing "Reveals unloaded nested sources in sources"
+    (is (= (->> (sut/fill-sync {:data-1 {::data-source/id :stub3}})
+                ::result/sources
+                (map #(select-keys % [:path :source])))
+           [{:path [:data-1]
+             :source {::data-source/id :stub3
+                      ::data-source/params {}
+                      ::data-source/deps #{}}}
+            {:path [:data-1 :nested-source]
+             :source {::data-source/id :stub3-nested
+                      ::data-source/fetch? false
+                      ::data-source/deps #{}}}])))
+
+  (testing "Has no result for un-attempted nested prescriptions"
+    (is (nil? (-> (sut/fill-sync {:data-1 {::data-source/id :stub3}})
+                  ::result/sources
+                  second
+                  :result)))))

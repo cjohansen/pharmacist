@@ -114,10 +114,15 @@
    (number? (::data-source/retries source))
    (<= (::result/attempts result) (::data-source/retries source))))
 
+(defn- prefix-paths [prescriptions prefix]
+  (map (fn [[path prescription]] [(concat prefix path) prescription]) prescriptions))
+
 (defn- prepare-result [path source result]
-  {:path (if (coll? path) path [path])
-   :source source
-   :result result})
+  (let [path (if (coll? path) path [path])]
+    {:path path
+     :source source
+     :result (-> result
+                 (update ::result/prescriptions prefix-paths path))}))
 
 (defn- fetch-data-sync [path source]
   (loop [attempts 1]
@@ -147,13 +152,6 @@
       (recur rest (assoc-in m path (::result/data result)))
       m)))
 
-(defn- prep-fill [prescription {:keys [params]}]
-  (let [sources (resolve-deps prescription)]
-    (when (deps-valid? sources params)
-      {:batches (batches sources params)
-       :sources sources
-       :params (or params {})})))
-
 (defn- prep-cached [path source cached]
   {:path path :source source :result (assoc cached ::result/attempts 0)})
 
@@ -175,10 +173,12 @@
                 (set (map #(-> % :path first) attempted)))]
     (->> (select-keys sources unused)
          (map (fn [[path source]]
-                {:path [path]
-                 :source source
-                 :result {::result/success? false
-                          ::result/attempts 0}})))))
+                (merge
+                 {:path (if (coll? path) path [path])
+                  :source source}
+                 (when (get source ::data-source/fetch? true)
+                   {:result {::result/success? false
+                             ::result/attempts 0}})))))))
 
 (defn- prepare-combined-result [sources attempted-sources res]
   {::result/success? (every? true? (map #(-> % :result ::result/success?) attempted-sources))
@@ -198,14 +198,39 @@
                      (recur (remove #(= % port) ports) (conj res val)))))
       res)))
 
+(defn- prep-fill [prescription {:keys [params]}]
+  (let [sources (resolve-deps prescription)]
+    (when (deps-valid? sources params)
+      {:batches (batches sources params)
+       :sources sources
+       :params (or params {})})))
+
 (defn fill-sync [prescription & [{:keys [params] :as opt}]]
   (let [{:keys [batches sources params]} (prep-fill prescription opt)]
     (loop [[batch & batches] batches
+           sources sources
            attempted-sources []
            res params]
       (if batch
-        (let [results (process-batch sources batch res (assoc opt :async? false))]
-          (recur batches (concat attempted-sources results) (add-results res results opt)))
+        (let [batch-results (process-batch sources batch res (assoc opt :async? false))
+              attempted-sources (concat attempted-sources batch-results)
+              results (add-results res batch-results opt)
+              nested-prescriptions (->> batch-results
+                                        (mapcat #(-> % :result ::result/prescriptions))
+                                        (into {}))]
+          (if (seq nested-prescriptions)
+            (let [updated-presc (-> dissoc
+                                    (apply prescription (keys results))
+                                    (merge (->> batch-results
+                                                (mapcat #(-> % :result ::result/prescriptions))
+                                                (map #(assoc-in % [1 ::data-source/fetch?] false))
+                                                (into {}))))
+                  nested (prep-fill updated-presc {:params results})]
+              (recur
+               batches ;;(:batches nested)
+               (merge sources (select-keys (:sources nested) (keys updated-presc)))
+               attempted-sources results))
+            (recur batches sources attempted-sources results)))
         (prepare-combined-result sources attempted-sources res)))))
 
 (defn fill [prescription & [opt]]
