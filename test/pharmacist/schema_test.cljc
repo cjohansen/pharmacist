@@ -109,3 +109,34 @@
       :muppet/entity {::sut/spec (s/keys :req [:muppet/name])})
     (is (= {:muppet/name "Animal"}
            (sut/coerce-data :test/muppet {:name "Animal"})))))
+
+(deftest datascript-schema-test
+  (testing "Exports datascript schema"
+    (is (= {:playlist/id {:db/unique :db.unique/identity}
+            :playlist/collaborative {}
+            :playlist/title {}
+            :playlist/image {:db/valueType :db.type/ref}
+            :playlist/images {:db/cardinality :db.cardinality/many}
+            :image/url {}
+            :image/width {}
+            :image/height {}}
+           (sut/datascript-schema
+            {:image/url {::sut/spec string?
+                         ::sut/source :url}
+             :image/width {::sut/spec int?
+                           ::sut/source :width}
+             :image/height {::sut/spec int?
+                            ::sut/source :height}
+             :playlist/id {::sut/unique ::sut/identity}
+             :playlist/collaborative {::sut/spec boolean?
+                                      ::sut/source :collaborative}
+             :playlist/title {::sut/spec string?
+                              ::sut/source :name}
+             :playlist/image {::sut/spec (s/keys :req [:image/url :image/width :image/height])}
+             :playlist/images {::sut/spec (s/coll-of :playlist/image)
+                               ::sut/source :images}
+             :playlist/entity {::sut/spec (s/keys :req [:playlist/id
+                                                        :playlist/collaborative
+                                                        :playlist/title
+                                                        :playlist/images])}}
+            :playlist/entity)))))

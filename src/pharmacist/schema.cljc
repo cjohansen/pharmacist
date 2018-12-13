@@ -86,6 +86,26 @@
   (defmethod coerce-data data-source-id [_ data]
     (coerce schema data root-spec)))
 
+(def ^:private schema->ds {::identity :db.unique/identity})
+
+(defn- schema-keys [k keyspec]
+  (let [spec (:pharmacist.schema/spec keyspec)
+        coll-type (coll-of spec)]
+    (cond-> (->> (keys keyspec)
+             (filter #(= (namespace %) "db"))
+             (select-keys keyspec))
+      (::unique keyspec) (assoc :db/unique (schema->ds (::unique keyspec)))
+      coll-type (assoc :db/cardinality :db.cardinality/many)
+      (or (seq (specced-keys spec))
+          (seq (specced-keys coll-type))) (assoc :db/valueType :db.type/ref))))
+
+(defn datascript-schema [schema k]
+  (let [ks (->> schema
+                (map (fn [[k v]] [k (schema-keys k v)]))
+                (into {}))]
+    (->> (conj (keep coll-of (keys schema)) k)
+         (apply dissoc ks))))
+
 (defn- camel-cased [k]
   (let [[head & tail] (str/split k #"-")]
     (apply str head (map str/capitalize tail))))
