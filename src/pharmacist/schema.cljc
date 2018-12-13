@@ -54,9 +54,10 @@
 (defn- lookup [{:keys [pharmacist.schema/source
                        pharmacist.schema/coerce]
                 :as keyspec} data k & [default]]
-  (let [v (if source
-            (source data k)
-            (get data k default))]
+  (let [v (cond
+            (nil? source) (get data k default)
+            (keyword? source) (source data)
+            :default (source data k))]
     (if coerce
       (try
         (coerce v)
@@ -72,11 +73,12 @@
         collection-type (coll-of spec)]
     (cond
       (seq ks) (let [val (lookup keyspec data k data)]
-                 (->> ks
-                      (map (fn [k] [k (coerce schema val k)]))
-                      (filter second)
-                      (into {})))
-      collection-type (when-let [coll (seq (lookup keyspec data k))]
+                 (when val
+                   (->> ks
+                        (map (fn [k] [k (coerce schema val k)]))
+                        (filter second)
+                        (into {}))))
+      collection-type (when-let [coll (lookup keyspec data k)]
                         (map #(coerce schema % collection-type) coll))
       :default (lookup keyspec data k))))
 

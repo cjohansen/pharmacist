@@ -81,6 +81,44 @@
                         :show "Muppets"}
                        :person/entity))))
 
+  (testing "Does not throw then source does not exist"
+    (is (= {}
+           (sut/coerce {::name {::sut/source :name}
+                        :person/entity {::sut/spec (s/keys :req [::name])}}
+                       {}
+                       :person/entity)))
+
+    (is (nil? (sut/coerce {:person/entity {::sut/source :body}}
+                          {}
+                          :person/entity)))
+
+    (is (= {}
+           (sut/coerce {::name {::sut/source :name}
+                        ::friend {::sut/spec (s/keys :req [::name])}
+                        ::friends {::sut/source :friends
+                                   ::sut/spec (s/coll-of ::friend)}
+                        :person/entity {::sut/spec (s/keys :req [::friends])}}
+                       {}
+                       :person/entity)))
+
+    (is (= {::friends []}
+           (sut/coerce {::name {::sut/source :name}
+                        ::friend {::sut/spec (s/keys :req [::name])}
+                        ::friends {::sut/source :friends
+                                   ::sut/spec (s/coll-of ::friend)}
+                        :person/entity {::sut/spec (s/keys :req [::friends])}}
+                       {:friends []}
+                       :person/entity))))
+
+  (testing "Does not accidentally coerce nil refs to empty maps"
+    (is (= {}
+           (sut/coerce {::name {::sut/source :name}
+                        ::friend {::sut/source :friend
+                                  ::sut/spec (s/keys :req [::name])}
+                        :person/entity {::sut/spec (s/keys :req [::friend])}}
+                       {}
+                       :person/entity))))
+
   (testing "Infers sources from camel-cased keys"
     (is (= {:person/display-name "Miss Piggy"}
            (sut/coerce {:person/display-name {::sut/spec string?
