@@ -147,7 +147,7 @@
 (defn- add-results [m results {:keys [cache-put]}]
   (loop [[{:keys [path source result]} & rest] (filter #(-> % :result ::result/success?) results)
          m m]
-    (when (and (fn? cache-put) result)
+    (when (and (fn? cache-put) result (not (:pharmacist.cache/cached-at result)))
       (cache-put path source (-> result
                                  (dissoc ::result/attempts)
                                  (assoc :pharmacist.cache/cached-at (now)))))

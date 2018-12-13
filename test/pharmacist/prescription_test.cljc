@@ -442,6 +442,20 @@
               ::result/data {:input-params {:id 42}}}
              (-> @cache vals first (select-keys [::result/success? ::result/data]))))))
 
+  (testing "fill-sync does not cache already cached data"
+    (let [cache (atom {})
+          stub (atom [])]
+      (sut/fill-sync {:data-1 {::data-source/id ::test2
+                               ::data-source/params {:id 42}}}
+                     (cache/atom-map cache))
+      (sut/fill-sync {:data-1 {::data-source/id ::test2
+                               ::data-source/params {:id 42}}}
+                     {:cache-get (:cache-get (cache/atom-map cache))
+                      :cache-put (fn [path prescription v]
+                                   (prn v)
+                                   (swap! stub conj path))})
+      (is (= [] @stub))))
+
   (testing "fill-sync does not cache unsuccessful data"
     (let [cache (atom {})]
       (sut/fill-sync {:data-1 {::data-source/id ::test2
