@@ -118,8 +118,11 @@
 (defn- prefix-paths [prescriptions prefix]
   (map (fn [[path prescription]] [(concat prefix path) prescription]) prescriptions))
 
+(defn- path-coll [path]
+  (if (coll? path) path [path]))
+
 (defn- prepare-result [path source result]
-  (let [path (if (coll? path) path [path])]
+  (let [path (path-coll path)]
     {:path path
      :source source
      :result (if (seq (::result/prescriptions result))
@@ -161,7 +164,7 @@
   {:path path :source source :result (assoc cached ::result/attempts 0)})
 
 (defn- get-cached [cache-get path source async?]
-  (when-let [cached (and (fn? cache-get) (cache-get [path] source))]
+  (when-let [cached (and (fn? cache-get) (cache-get (path-coll path) source))]
     (let [res (prep-cached path source cached)]
       (if async? (a/go res) res))))
 
@@ -169,7 +172,7 @@
   (->> (select-keys sources batch)
        (filter (partial satisfied? res))
        (map (fn [[path source]]
-              (or (get-cached cache-get [path] source async?)
+              (or (get-cached cache-get (path-coll path) source async?)
                   ((if async? fetch-data fetch-data-sync) path (provide-deps res source)))))))
 
 (defn- unused-sources [sources attempted]
@@ -179,7 +182,7 @@
     (->> (select-keys sources unused)
          (map (fn [[path source]]
                 (merge
-                 {:path (if (coll? path) path [path])
+                 {:path (path-coll path)
                   :source source}
                  (when (get source ::data-source/fetch? true)
                    {:result {::result/success? false
