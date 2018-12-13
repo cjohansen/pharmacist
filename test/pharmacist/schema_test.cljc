@@ -27,12 +27,12 @@
                                      :opt [::e ::f])))))
 
   (testing "Gets un-namespaced keys too"
-    (is (= #{::b ::c ::d ::e ::f}
+    (is (= #{:b :c :d :e :f}
            (sut/specced-keys (s/keys :req-un [::b ::c ::d]
                                      :opt-un [::e ::f])))))
 
   (testing "Combines multiple key sources"
-    (is (= #{::name ::age ::hobby ::planet ::fur-length ::commands}
+    (is (= #{::name ::age ::hobby ::planet ::fur-length :commands}
            (sut/specced-keys (s/or :person (s/keys :req [::name ::age]
                                                    :opt [::hobby])
                                    :alien (s/keys :req [::name ::planet]
@@ -68,6 +68,17 @@
                                               ::sut/source :displayName}
                         :person/entity {::sut/spec (s/keys :req [:person/display-name])}}
                        {:displayName "Miss Piggy"}
+                       :person/entity))))
+
+  (testing "Gets un-namespaced keys from :req-un and :opt-un keyspecs"
+    (is (= {:display-name "Miss Piggy"
+            :show "Muppets"}
+           (sut/coerce {:display-name {::sut/source :displayName}
+                        :show {}
+                        :person/entity {::sut/spec (s/keys :req-un [::display-name]
+                                                           :opt-un [::show])}}
+                       {:displayName "Miss Piggy"
+                        :show "Muppets"}
                        :person/entity))))
 
   (testing "Infers sources from camel-cased keys"

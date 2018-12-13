@@ -36,7 +36,10 @@
          (specs-by-fn #?(:cljs 'cljs.spec.alpha/keys
                          :clj 'clojure.spec.alpha/keys))
          (partition 2)
-         (mapcat second)
+         (mapcat (fn [[k keys]]
+                   (if (#{:req-un :opt-un} k)
+                     (map #(-> % name keyword) keys)
+                     keys)))
          (into #{}))))
 
 (defn coll-of
