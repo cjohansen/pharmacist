@@ -76,7 +76,7 @@
                  (when val
                    (->> ks
                         (map (fn [k] [k (coerce schema val k)]))
-                        (filter second)
+                        (filter #(not (nil? (second %))))
                         (into {}))))
       collection-type (when-let [coll (lookup keyspec data k)]
                         (map #(coerce schema % collection-type) coll))

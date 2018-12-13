@@ -119,6 +119,13 @@
                        {}
                        :person/entity))))
 
+  (testing "Does not accidentally coerce false to nil"
+    (is (= {:really? false}
+           (sut/coerce {:really? {}
+                        :thing/entity {::sut/spec (s/keys :req-un [::really?])}}
+                       {:really? false}
+                       :thing/entity))))
+
   (testing "Infers sources from camel-cased keys"
     (is (= {:person/display-name "Miss Piggy"}
            (sut/coerce {:person/display-name {::sut/spec string?
