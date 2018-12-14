@@ -376,6 +376,20 @@ functions.
 In the future, Pharmacist might provide tools for controlling caching on a
 per-result basis from data sources.
 
+When using `atom-map` cache, you can control the cache key for individual
+sources by implementing `pharmacist.data-source/cache-key`:
+
+```sh
+(require '[pharmacist.data-source :as data-source])
+
+(defmethod data-source/cache-key :my-source [prescription params]
+  [:custom-path (:id params)])
+```
+
+**NB!** The `cache-key` method is passed both the `prescription` (which contains
+_all_ the parameters) and the `params` separately, because the latter may be a
+subset of all the parameters found in the prescription.
+
 ## Mapping and coercion
 
 When consuming external data, we might want to map the keys and coerce the types
