@@ -6,31 +6,20 @@
 
 (s/def ::path (s/coll-of keyword?))
 (s/def ::prescription (s/keys :req [::data-source/id ::data-source/params]))
-(s/def ::cache-path-args (s/cat :prescription ::prescription))
-
-(defn cache-path
-  "Given a path (keyword) and a data source, return the string cache key. Combines
-  the path with parameters sorted into a query string."
-  [prescription]
-  (str (::data-source/id prescription)
-       "/"
-       (->> (::data-source/params prescription)
-            (sort-by first)
-            (map #(str/join "=" %))
-            (str/join "&"))))
-
-(s/fdef cache-path
-  :args ::cache-path-args
-  :ret string?)
-
 (s/def ::cache #(instance? clojure.lang.IRef %))
 (s/def ::cache-get-args (s/cat :cache ::cache :path ::path :prescription ::prescription))
+
+(defmethod data-source/cache-key :default [prescription params]
+  [(::data-source/id prescription) params])
+
+(defn cache-key [prescription]
+  (data-source/cache-key prescription (::data-source/params prescription)))
 
 (defn cache-get
   "Look up data source in the cache. Expects all parameters in `prescription` to
   be dependency resolved and fully realized."
   [cache path prescription]
-  (get @cache (cache-path prescription)))
+  (get @cache (cache-key prescription)))
 
 (s/fdef cache-get
   :args ::cache-get-args
@@ -45,7 +34,7 @@
   "Put item in cache. Expects all parameters in `prescription` to be dependency
   resolved and fully realized."
   [cache path prescription value]
-  (swap! cache assoc (cache-path prescription) value)
+  (swap! cache assoc (cache-key prescription) value)
   nil)
 
 (s/fdef cache-put

@@ -4,21 +4,32 @@
             #?(:clj [clojure.test :refer [deftest testing is]]
                :cljs [cljs.test :refer [deftest testing is]])))
 
-(deftest cache-path-test
+(defmethod data-source/cache-key :custom [_ params]
+  [:customz (:id params)])
+
+(deftest cache-key-test
   (testing "Uses prescription path and params"
-    (is (= ":source/:lol=2"
-           (sut/cache-path {::data-source/id :source
-                            ::data-source/params {:lol 2}}))))
+    (is (= [:source {:lol 2}]
+           (sut/cache-key {::data-source/id :source
+                           ::data-source/params {:lol 2}}))))
 
   (testing "Calculates stable paths for same params"
-    (is (= (sut/cache-path {::data-source/id :source
-                            ::data-source/params {:hello 5
-                                                  :lal 3
-                                                  :lol 2}})
-           (sut/cache-path {::data-source/id :source
-                            ::data-source/params {:lol 2
-                                                  :lal 3
-                                                  :hello 5}})))))
+    (is (= (sut/cache-key {::data-source/id :source
+                           ::data-source/params {:hello 5
+                                                 :lal 3
+                                                 :lol 2}})
+           (sut/cache-key {::data-source/id :source
+                           ::data-source/params {:lol 2
+                                                 :lal 3
+                                                 :hello 5}}))))
+
+  (testing "Calculates custom cache paths"
+    (is (= [:customz 14]
+           (sut/cache-key {::data-source/id :custom
+                           ::data-source/params {:hello 5
+                                                 :id 14
+                                                 :lal 3
+                                                 :lol 2}})))))
 
 (deftest cache-get-put-test
   (testing "Retrieves item put in cache"

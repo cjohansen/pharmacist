@@ -281,7 +281,7 @@ This problem could also be hinted at by the data source itself:
 
 ## Caching
 
-Caching of data sources is handled by two functions:
+Caching of data sources is primarily handled by two functions:
 
 ```clj
 (defn cache-get [path prescription])
@@ -307,18 +307,14 @@ You pass these functions to `fill`:
          '[pharmacist.data-source :as data-source]
          '[pharmacist.prescription :as prescription])
 
-(defn cache-path [path prescription]
-  (str path
-       (->> (::data-source/params params)
-            (sort-by first)
-            (map #(str/join "=" %))
-            (str/join "&"))))
+(defn cache-key [prescription]
+  [(::data-source/id params) (::data-source/params params)])
 
 (defn cache-get [cache path prescription]
-  (get @cache (cache-path path prescription)))
+  (get @cache (cache-key prescription)))
 
 (defn cache-put [cache path prescription value]
-  (swap! cache assoc (cache-path path prescription) value))
+  (swap! cache assoc (cache-key prescription) value))
 
 (def cache (atom {}))
 
@@ -327,6 +323,24 @@ You pass these functions to `fill`:
  {:cache-get (partial cache-get cache)
   :cache-put (partial cache-put cache)})
 ```
+
+### Cache keys
+
+As demonstrated above, you can generate whatever cache keys you want, but for
+the vast majority of cases, the `::data-source/id` of the prescription and the
+provided parameters will uniquely address the content fetched by a prescription.
+For this purpose, Pharmacist provides `pharmacist.cache/cache-key`, which takes
+a prescription and returns a key:
+
+```
+(def prescription
+  {:gremlins {::data-source/id :movie
+              ::data-source/params {:id 657}}})
+
+(pharmacist.cache/cache-key prescription) ;;=> [:movie {:id 657}]
+```
+
+### Atoms with map caches
 
 Because *map-in-atom* is such a versatile caching strategy (it will work with
 plain maps and atoms, as well as atoms containing any of Clojure's `core.cache`
@@ -355,7 +369,9 @@ Combine this with the `core.cache` TTL cache to cache all data for one hour:
 provide functions that dispatch on `path`, `::data-source/id`, or even
 individual results. Note that the caching functions are passed the full
 prescription, meaning that you could annotate it with information about how long
-different types of data should be cached etc.
+different types of data should be cached etc. You can also set `:ttl`,
+`:expires-at` or similar on your sources, and use these in your cache get/put
+functions.
 
 In the future, Pharmacist might provide tools for controlling caching on a
 per-result basis from data sources.

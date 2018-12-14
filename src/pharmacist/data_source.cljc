@@ -19,3 +19,10 @@
 
 (defmethod fetch :default [prescription]
   (a/go (fetch-sync prescription)))
+
+(defmulti cache-key
+  "Given a prescription, and params (possibly a subset of the params in the
+  prescription), return the cache key that uniquely addresses content loaded by
+  the prescription. The default implementation combines the id/type with all
+  parameters"
+  (fn [prescription params] (::id prescription)))

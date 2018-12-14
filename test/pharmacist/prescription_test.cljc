@@ -390,7 +390,7 @@
          (let [prescription {::data-source/id ::test2
                              ::data-source/params {:id 42}}
                v (a/<! (sut/fill {:data-1 prescription}
-                                 (cache/atom-map (atom {(cache/cache-path prescription)
+                                 (cache/atom-map (atom {(cache/cache-key prescription)
                                                         {::result/success? true
                                                          ::result/data {:input-params {:id 333}}}}))))]
            (is (= {::result/success? true
@@ -426,7 +426,7 @@
       (is (= (-> {:data-1 prescription
                   :data-2 {::data-source/id ::test2
                            ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-                 (sut/fill-sync (cache/atom-map (atom {(cache/cache-path prescription)
+                 (sut/fill-sync (cache/atom-map (atom {(cache/cache-key prescription)
                                                        {::result/success? true
                                                         ::result/data {:input-params {:id 111}}}})))
                  ::result/data)
