@@ -172,8 +172,9 @@
   (->> (select-keys sources batch)
        (filter (partial satisfied? res))
        (map (fn [[path source]]
-              (or (get-cached cache-get (path-coll path) source async?)
-                  ((if async? fetch-data fetch-data-sync) path (provide-deps res source)))))))
+              (let [source (provide-deps res source)]
+                (or (get-cached cache-get (path-coll path) source async?)
+                    ((if async? fetch-data fetch-data-sync) path source)))))))
 
 (defn- unused-sources [sources attempted]
   (let [unused (set/difference

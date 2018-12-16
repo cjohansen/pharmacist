@@ -398,6 +398,22 @@
                    ::result/attempts 0}
                   (:result v))))))))
 
+  (testing "fill gets cached data with resolved parameters"
+    (test-async
+     (test-within 1000
+       (a/go
+         (let [prescription {::data-source/id ::test2
+                             ::data-source/params {:id ^::data-source/dep [:config :id]}}
+               k (cache/cache-key {::data-source/id ::test2
+                                   ::data-source/params {:id 1337}})
+               v (a/<! (sut/fill {:data-1 prescription}
+                                 (assoc (cache/atom-map (atom {k (result/success {:input-params {:id 333}})}))
+                                        :params {:config {:id 1337}})))]
+           (is (= {::result/success? true
+                   ::result/data {:input-params {:id 333}}
+                   ::result/attempts 0}
+                  (:result v))))))))
+
   (testing "fill caches data when successful"
     (test-async
      (test-within 1000
@@ -430,6 +446,21 @@
                                                        {::result/success? true
                                                         ::result/data {:input-params {:id 111}}}})))
                  ::result/data)
+             {:data-1 {:input-params {:id 111}}
+              :data-2 {:input-params {:secondary-id 111}}}))))
+
+  (testing "fill-sync gets cached data with resolved params"
+    (let [prescription {::data-source/id ::test2
+                        ::data-source/params {:id ^::data-source/dep [:config :id]}}
+          k (cache/cache-key {::data-source/id ::test2
+                              ::data-source/params {:id 42}})]
+      (is (= (-> {:data-1 prescription
+                  :data-2 {::data-source/id ::test2
+                           ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
+                 (sut/fill-sync (assoc (cache/atom-map (atom {k (result/success {:input-params {:id 111}})}))
+                                       :params {:config {:id 42}}))
+                 ::result/data
+                 (select-keys [:data-1 :data-2]))
              {:data-1 {:input-params {:id 111}}
               :data-2 {:input-params {:secondary-id 111}}}))))
 
@@ -615,8 +646,20 @@
 (defmethod data-source/fetch-sync ::mapped-source [prescription]
   (result/success {:some-attr "LOL"}))
 
+(defmethod data-source/fetch-sync ::echo [prescription]
+  (result/success (::data-source/params prescription)))
+
 (deftest data-coercion-test
   (testing "Maps result with defined schema"
     (is (= {:data {:source1/some-attr "LOL"}}
            (-> (sut/fill-sync {:data {::data-source/id ::mapped-source}})
+               ::result/data))))
+
+  (testing "Passes coerced data as dependencies"
+    (is (= {:data {:source1/some-attr "LOL"}
+            :data2 {:input "LOL"}}
+           (-> (sut/fill-sync
+                {:data {::data-source/id ::mapped-source}
+                 :data2 {::data-source/id ::echo
+                         ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}})
                ::result/data)))))
