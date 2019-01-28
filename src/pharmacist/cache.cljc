@@ -9,11 +9,8 @@
 (s/def ::cache #(instance? clojure.lang.IRef %))
 (s/def ::cache-get-args (s/cat :cache ::cache :path ::path :prescription ::prescription))
 
-(defmethod data-source/cache-key :default [prescription params]
-  [(::data-source/id prescription) params])
-
 (defn cache-key [prescription]
-  (data-source/cache-key prescription (::data-source/params prescription)))
+  (data-source/cache-key prescription))
 
 (defn cache-get
   "Look up data source in the cache. Expects all parameters in `prescription` to

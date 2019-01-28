@@ -73,7 +73,7 @@ A data source is an implementation of either `pharmacist.data-source/fetch` or
 While you certainly could make good of use it with a single data source,
 Pharmacist is designed to alleviate the pain of coordinating multiple sources,
 so a meaningful hello world will need at least two sources. Let's define another
-to fetch an API token:
+one, which fetches an API token:
 
 ```clj
 (defmethod data-source/fetch :spotify/auth [prescription]
@@ -222,8 +222,9 @@ resource, declare the full map as a dependency:
 ## Retry on failure
 
 HTTP and other network protocols don't always work exactly as planned.
-Sometimes, problems go away if you just try again. For this reason, Pharmacist
-can retry your failing data sources if you tell it to:
+Sometimes, problems go away if you just try again. By default, Pharmacist will
+not retry sources. To enable them, specify the maximum number of retries on the
+prescription:
 
 ```clj
 (def prescription
@@ -233,9 +234,10 @@ can retry your failing data sources if you tell it to:
            ::data-source/retries 3}})
 ```
 
-With this addition, the token will be retried 3 times before causing an error.
-If it does fail, you will still be notified via the channel returned from
-`fill`, but the message will look like:
+With this addition, the token will be retried 3 times before causing an error -
+_if the result can be retried_, a decision made by the fetch implementation. You
+will still be notified via the channel returned from `fill` of failed requests
+that are being retried, the message will look like:
 
 ```clj
 {::result/success? false
@@ -244,27 +246,11 @@ If it does fail, you will still be notified via the channel returned from
  ::result/completed? false}
 ```
 
-Some errors won't go away no matter how many times you retry. If you know that a
-certain error is persistent, you can tell Pharmacist. For instance, a 401 when
-trying to acquire a token indicates authentication problems that likely won't be
-corrected by retries:
+`::result/completed? false` means it is going to be retried.
 
-```clj
-(require '[pharmacist.data-source :as data-source]
-         '[pharmacist.result :as result])
-
-(defn retryable? [result]
-  (not= (-> result ::result/data :status) 401))
-
-(def prescription
-  {::auth {::data-source/id :spotify/auth
-           ::data-source/params {:spotify-api-user "username"
-                                 :spotify-api-password "password"}
-           ::data-source/retries 3
-           ::data-source/retryable? retryable?}})
-```
-
-This problem could also be hinted at by the data source itself:
+Some errors won't go away no matter how many times you retry. The result
+returned from the data source can inform Pharmacist on whether or not it is
+worth trying again:
 
 ```clj
 (defmethod data-source/fetch :spotify/auth [prescription]
@@ -278,6 +264,47 @@ This problem could also be hinted at by the data source itself:
                #(put! ch (result/failure % {::result/retryable? (not= 401 (:status %))})))
     ch))
 ```
+
+When `::result/retryable?` is `false`, Pharmacist will not retry the fetch, even
+if the maximum number of retries is not exhausted. If `::result/retryable?` is
+not set, its default value is `true`.
+
+### Nested retries
+
+Sometimes it is not worth retrying a fetch without refreshing some of its
+dependencies. To continue the example of the authentication token, a 403
+response from a service could be worth retrying, but only with a fresh token.
+
+Given the following prescription:
+
+```clj
+(def prescription
+  {::auth {::data-source/id :spotify/auth
+           ::data-source/params ^::data-source/dep [:config]}
+
+   ::playlists {::data-source/id :spotify/playlists
+                ::data-source/params {:token ^::data-source/dep [::auth :access_token]}}})
+```
+
+The playlist resource can indicate that it might be worth a retry with a new
+token the following way:
+
+```clj
+(defmethod data-source/fetch :spotify/playlist [prescription]
+  (let [ch (chan)]
+    (http/get "https://api.spotify.com/playlists"
+              {:async? true
+               :oauth-token (-> prescription ::data-source/params :token)}
+              #(put! ch (result/success (:body %)))
+              #(put! ch (result/failure {:error "Failed to fetch playlists"}
+                                        (when (= 403 (:status %))
+                                          {::result/retryable? true
+                                           ::result/refresh [:token]}))))
+    ch))
+```
+
+Pharmacist will know that the `:token` parameter came from the `::auth` source,
+retry it without caching, and then retry the playlist.
 
 ## Caching
 
@@ -337,7 +364,19 @@ a prescription and returns a key:
   {:gremlins {::data-source/id :movie
               ::data-source/params {:id 657}}})
 
-(pharmacist.cache/cache-key prescription) ;;=> [:movie {:id 657}]
+(pharmacist.cache/cache-key (:gremlins prescription)) ;;=> [:movie {:id 657}]
+```
+
+If a data source depends on the result of other sources for their parameters,
+the full set of parameters may be a huge piece of data not well suited as a
+cache key. In that is the case, you can implement `pharmacist.cache/cache-key`
+for your data source:
+
+```clj
+(require '[pharmacist.data-source :as data-source])
+
+(defmethod data-source/cache-key ::my-data-source [prescription]
+  [:my-data-source (get-in prescription [::data-source/params :some-dep :id])])
 ```
 
 ### Atoms with map caches
@@ -537,11 +576,12 @@ each.
          '[pharmacist.schema :as schema :refer [defschema]])
 
 (defn- prepare-prescriptions [body]
-  (map-indexed (fn [idx url]
-                 [[:movie/people idx]
-                  {::data-source/id :ghibli/person
-                   ::data-source/params {:url url}}])
-               (:people body)))
+  (->> (:people body)
+       (map-indexed (fn [idx url]
+                      [[:movie/people idx]
+                       {::data-source/id :ghibli/person
+                        ::data-source/params {:url url}}]))
+       (into {})))
 
 (defmethod data-source/fetch :ghibli/film [prescription]
   (let [ch (chan)]

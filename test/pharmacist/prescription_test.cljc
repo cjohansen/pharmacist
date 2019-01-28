@@ -3,641 +3,831 @@
             [pharmacist.data-source :as data-source]
             [pharmacist.cache :as cache]
             [pharmacist.result :as result]
-            [pharmacist.utils :refer [test-async test-within]]
             [pharmacist.schema :as schema]
-            #?(:clj [clojure.test :refer [deftest testing is]]
-               :cljs [cljs.test :refer [deftest testing is]])
-            #?(:clj [clojure.core.async :as a]
-               :cljs [cljs.core.async :as a])
+            #?(:clj [pharmacist.clojure-test-helper :refer [defscenario defscenario-async]]
+               :cljs [pharmacist.cljs-test-helper :refer [defscenario defscenario-async]])
+            [pharmacist.schema :as schema]
+            #?(:clj [clojure.test :refer [is]]
+               :cljs [cljs.test :refer [is]])
+            #?(:clj [clojure.core.async :refer [<! <!! go go-loop timeout]]
+               :cljs [cljs.core.async :refer [<! <!! go go-loop timeout]])
             #?(:clj [clojure.spec.alpha :as s]
                :cljs [cljs.spec.alpha :as s])))
 
-(deftest resolve-deps-test
-  (testing "Ignores no dependencies"
-    (is (= (sut/resolve-deps {:data-1 {::data-source/id :data/one}
-                              :data-2 {::data-source/id :data/two}})
-           {:data-1 {::data-source/id :data/one
-                     ::data-source/deps #{}}
-            :data-2 {::data-source/id :data/two
-                     ::data-source/deps #{}}})))
+(defscenario "Ignores no dependencies"
+  (is (= {:data-1 {::data-source/id :data/one
+                   ::data-source/deps #{}}
+          :data-2 {::data-source/id :data/two
+                   ::data-source/deps #{}}}
+         (sut/resolve-deps {:data-1 {::data-source/id :data/one}
+                            :data-2 {::data-source/id :data/two}}))))
 
-  (testing "Picks up single dependency"
-    (is (= (sut/resolve-deps
-            {:data-1 {::data-source/id :data/one}
-             :data-2 {::data-source/id :data/two
-                      ::data-source/params {:some-param ^::data-source/dep [:data-1 :data]}}})
-           {:data-1 {::data-source/id :data/one
-                     ::data-source/deps #{}}
-            :data-2 {::data-source/id :data/two
-                     ::data-source/params {:some-param [:data-1 :data]}
-                     ::data-source/deps #{:data-1}}})))
-
-  (testing "Picks up single non-existent dependency"
-    (is (= (sut/resolve-deps
-            {:data-1 {::data-source/id :data/one
-                      ::data-source/params {:id ^::data-source/dep [:config :id]}}})
-           {:data-1 {::data-source/id :data/one
-                     ::data-source/params {:id ^::data-source/dep [:config :id]}
-                     ::data-source/deps #{:config}}})))
-
-  (testing "Picks up full params map as dependency"
-    (is (= (sut/resolve-deps {:data-1 {::data-source/params ^::data-source/dep [:config]}})
-           {:data-1 {::data-source/params ^::data-source/dep [:config]
-                     ::data-source/deps #{:config}}})))
-
-  (testing "Ignores single dependency without meta data"
-    (is (= (sut/resolve-deps {:data-1 {::data-source/id :data/one}
-                              :data-2 {::data-source/id :data/two
-                                       ::data-source/params {:some-param [:data-1 :data]}}})
-           {:data-1 {::data-source/id :data/one
-                     ::data-source/deps #{}}
-            :data-2 {::data-source/id :data/two
-                     ::data-source/params {:some-param [:data-1 :data]}
-                     ::data-source/deps #{}}})))
-
-  (testing "Fails when metadata indicates dependency, but dep is not a vector"
-    (is (thrown?
-         #?(:clj Exception
-            :cljs js/Error)
+(defscenario "Picks up single dependency"
+  (is (= {:data-1 {::data-source/id :data/one
+                   ::data-source/deps #{}}
+          :data-2 {::data-source/id :data/two
+                   ::data-source/params {:some-param [:data-1 :data]}
+                   ::data-source/deps #{:data-1}}}
          (sut/resolve-deps
           {:data-1 {::data-source/id :data/one}
            :data-2 {::data-source/id :data/two
-                    ::data-source/params {:some-param ^::data-source/dep {}}}}))))
+                    ::data-source/params {:some-param ^::data-source/dep [:data-1 :data]}}}))))
 
-  (testing "Fails when metadata indicates dependency, but params is not a vector"
-    (is (thrown?
-         #?(:clj Exception
-            :cljs js/Error)
+(defscenario "Picks up single non-existent dependency"
+  (is (= {:data-1 {::data-source/id :data/one
+                   ::data-source/params {:id ^::data-source/dep [:config :id]}
+                   ::data-source/deps #{:config}}}
+         (sut/resolve-deps
+          {:data-1 {::data-source/id :data/one
+                    ::data-source/params {:id ^::data-source/dep [:config :id]}}}))))
+
+(defscenario "Picks up full params map as dependency"
+  (is (= {:data-1 {::data-source/params ^::data-source/dep [:config]
+                   ::data-source/deps #{:config}}}
+         (sut/resolve-deps {:data-1 {::data-source/params ^::data-source/dep [:config]}}))))
+
+(defscenario "Ignores single dependency without meta data"
+  (is (= {:data-1 {::data-source/id :data/one
+                   ::data-source/deps #{}}
+          :data-2 {::data-source/id :data/two
+                   ::data-source/params {:some-param [:data-1 :data]}
+                   ::data-source/deps #{}}}
+         (sut/resolve-deps {:data-1 {::data-source/id :data/one}
+                            :data-2 {::data-source/id :data/two
+                                     ::data-source/params {:some-param [:data-1 :data]}}}))))
+
+(defscenario "Fails when metadata indicates dependency, but dep is not a vector"
+  (is (thrown?
+       #?(:clj Exception
+          :cljs js/Error)
+       (sut/resolve-deps
+        {:data-1 {::data-source/id :data/one}
+         :data-2 {::data-source/id :data/two
+                  ::data-source/params {:some-param ^::data-source/dep {}}}}))))
+
+(defscenario "Fails when metadata indicates dependency, but params is not a vector"
+  (is (thrown?
+       #?(:clj Exception
+          :cljs js/Error)
+       (sut/resolve-deps
+        {:data-1 {::data-source/id :data/one}
+         :data-2 {::data-source/id :data/two
+                  ::data-source/params ^::data-source/dep {}}}))))
+
+(defscenario "Picks up multiple dependencies"
+  (is (= {:data-1 {::data-source/id :data/one
+                   ::data-source/deps #{}}
+          :data-2 {::data-source/id :data/two
+                   ::data-source/params {:some-param [:data-1 :data]
+                                         :other [:data-1 :other]}
+                   ::data-source/deps #{:data-1}}
+          :data-3 {::data-source/id :data/three
+                   ::data-source/params {:another [:data-1 :data]
+                                         :final [:data-2 :prop]}
+                   ::data-source/deps #{:data-1 :data-2}}}
          (sut/resolve-deps
           {:data-1 {::data-source/id :data/one}
            :data-2 {::data-source/id :data/two
-                    ::data-source/params ^::data-source/dep {}}}))))
+                    ::data-source/params {:some-param ^::data-source/dep [:data-1 :data]
+                                          :other ^::data-source/dep [:data-1 :other]}}
+           :data-3 {::data-source/id :data/three
+                    ::data-source/params {:another ^::data-source/dep [:data-1 :data]
+                                          :final ^::data-source/dep [:data-2 :prop]}}}))))
 
-  (testing "Picks up multiple dependencies"
-    (is (= (sut/resolve-deps
-            {:data-1 {::data-source/id :data/one}
-             :data-2 {::data-source/id :data/two
-                      ::data-source/params {:some-param ^::data-source/dep [:data-1 :data]
-                                            :other ^::data-source/dep [:data-1 :other]}}
-             :data-3 {::data-source/id :data/three
-                      ::data-source/params {:another ^::data-source/dep [:data-1 :data]
-                                            :final ^::data-source/dep [:data-2 :prop]}}})
-           {:data-1 {::data-source/id :data/one
-                     ::data-source/deps #{}}
-            :data-2 {::data-source/id :data/two
-                     ::data-source/params {:some-param [:data-1 :data]
-                                           :other [:data-1 :other]}
-                     ::data-source/deps #{:data-1}}
-            :data-3 {::data-source/id :data/three
-                     ::data-source/params {:another [:data-1 :data]
-                                           :final [:data-2 :prop]}
-                     ::data-source/deps #{:data-1 :data-2}}}))))
-
-(deftest deps-valid?-test
-  (testing "Errors on cyclic dependency"
-    (is (thrown-with-msg?
-         #?(:clj Exception
-            :cljs js/Error)
-         #":data-1 .* cyclic .*:data-2 -> :data-1"
-         (sut/deps-valid? {:data-1 {:data-source/deps #{:data-2}}
-                           :data-2 {:data-source/deps #{:data-1}}}))))
-
-  (testing "Errors on deeply cyclic dependency with path"
-    (is (thrown-with-msg?
-         #?(:clj Exception
-            :cljs js/Error)
-         #":data-1 .* cyclic .*:data-2 -> :data-3 -> :data-4 -> :data-1"
-         (sut/deps-valid? {:data-1 {:data-source/deps #{:data-2}}
-                         :data-2 {:data-source/deps #{:data-3}}
-                         :data-3 {:data-source/deps #{:data-4}}
-                         :data-4 {:data-source/deps #{:data-1}}}))))
-
-  (testing "Errors on another cyclic dependency"
-    (is (thrown-with-msg?
-         #?(:clj Exception
-            :cljs js/Error)
-         #":data-3 .* cyclic .*:data-4 -> :data-3"
-         (sut/deps-valid? {:data-1 {:data-source/deps #{:data-2}}
-                         :data-2 {}
-                         :data-3 {:data-source/deps #{:data-1 :data-4}}
-                         :data-4 {:data-source/deps #{:data-3}}}))))
-
-  (testing "Errors on undefined dependency"
-    (is (thrown-with-msg?
-         #?(:clj Exception
-            :cljs js/Error)
-         #":data-3 .* missing .*:data-4"
-         (sut/deps-valid? {:data-1 {::data-source/deps #{:data-2}}
-                           :data-2 {}
-                           :data-3 {::data-source/deps #{:data-1 :data-4}}}))))
-
-  (testing "Allows non-cyclic dependencies"
-    (is (sut/deps-valid?
+(defscenario "Only resolves dependencies from specified keys"
+  (is (= {:data-1 {::data-source/id :data/one
+                   ::data-source/deps #{}}}
          (sut/resolve-deps
-          {:data-1 {}
-           :data-2 {::data-source/params {:a ^::data-source/dep [:data-1 :something]}}}))))
+          {:data-1 {::data-source/id :data/one}
+           :data-2 {::data-source/id :data/two
+                    ::data-source/params {:some-param ^::data-source/dep [:data-1 :data]
+                                          :other ^::data-source/dep [:data-1 :other]}}
+           :data-3 {::data-source/id :data/three
+                    ::data-source/params {:another ^::data-source/dep [:data-1 :data]
+                                          :final ^::data-source/dep [:data-2 :prop]}}}
+          [:data-1]))))
 
-  (testing "Allows dependencies on parameters"
-    (is (sut/deps-valid?
-         (sut/resolve-deps {:data-2 {::data-source/params {:a ^::data-source/dep [:config :something]}}})
-         {:config {}})))
+(defscenario "Resolves transitive dependencies when only resolving for selected keys"
+  (is (= {:data-1 {::data-source/id :data/one
+                   ::data-source/deps #{}}
+          :data-2 {::data-source/id :data/two
+                   ::data-source/params {:other [:data-1 :other]}
+                   ::data-source/deps #{:data-1}}
+          :data-3 {::data-source/id :data/three
+                   ::data-source/params {:final [:data-2 :prop]}
+                   ::data-source/deps #{:data-2}}}
+         (sut/resolve-deps
+          {:data-1 {::data-source/id :data/one}
+           :data-2 {::data-source/id :data/two
+                    ::data-source/params {:other ^::data-source/dep [:data-1 :other]}}
+           :data-3 {::data-source/id :data/three
+                    ::data-source/params {:final ^::data-source/dep [:data-2 :prop]}}}
+          [:data-3]))))
 
-  (testing "Allows full parameter map to be a single dependency"
-    (is (sut/deps-valid?
-         (sut/resolve-deps {:data-2 {::data-source/params ^::data-source/dep [:config]}})
-         {:config {}})))
+(defscenario "Does not trip on circular dependencies"
+  (is (= {:data-1 {::data-source/id :data/one
+                   ::data-source/params {:a [:data-2 :data]}
+                   ::data-source/deps #{:data-2}}
+          :data-2 {::data-source/id :data/two
+                   ::data-source/params {:a [:data-1 :data]}
+                   ::data-source/deps #{:data-1}}}
+         (sut/resolve-deps
+          {:data-1 {::data-source/id :data/one
+                    ::data-source/params {:a ^::data-source/dep [:data-2 :data]}}
+           :data-2 {::data-source/id :data/two
+                    ::data-source/params {:a ^::data-source/dep [:data-1 :data]}}}
+          [:data-1]))))
 
-  (testing "Errors when params shadow sources"
-    (is (thrown-with-msg?
-         #?(:clj Exception
-            :cljs js/Error)
-         #":config shadow"
-         (sut/deps-valid?
-          (sut/resolve-deps {:config {}
-                             :data-2 {::data-source/params {:a ^::data-source/dep [:config :something]}}})
-          {:config {}})))))
+(defmethod data-source/fetch-sync :source-1 [{::data-source/keys [params]}]
+  (result/success params))
 
-(deftest batches-test
-  (testing "Loads everything in parallel with no deps"
-    (is (= [#{:data-1 :data-2 :data-3}]
-           (sut/batches {:data-1 {}
-                                   :data-2 {}
-                                   :data-3 {}} {}))))
+(defn stub [ref returns]
+  (reset! ref {:returns (into [] (reverse returns)) :calls []}))
 
-  (testing "Loads sources with no dependencies first"
-    (is (= [#{:data-1 :data-2} #{:data-3}]
-           (sut/batches {:data-1 {}
-                                   :data-2 {}
-                                   :data-3 {::data-source/deps #{:data-1}}} {}))))
+(def stub-1 (atom {}))
 
-  (testing "Loads sources in batches"
-    (is (= [#{:data-1 :data-2} #{:data-3 :data-4} #{:data-5 :data-6}]
-           (sut/batches {:data-1 {}
-                                   :data-2 {}
-                                   :data-3 {::data-source/deps #{:data-1}}
-                                   :data-4 {::data-source/deps #{:data-1 :data-2}}
-                                   :data-5 {::data-source/deps #{:data-3}}
-                                   :data-6 {::data-source/deps #{:data-4}}} {}))))
+(defmethod data-source/fetch-sync :stub-1 [{::data-source/keys [params] :as args}]
+  (let [val (-> @stub-1 :returns last)]
+    (swap! stub-1 update :returns pop)
+    (swap! stub-1 update :calls conj args)
+    (result/success val)))
 
-  (testing "Loads data sources only depending on params first"
-    (is (= [#{:data-1} #{:data-2}]
-           (sut/batches
-            (sut/resolve-deps
-             {:data-1 {::data-source/id ::test1
-                       ::data-source/params {:id ^::data-source/dep [:config :id]}}
-              :data-2 {::data-source/id ::test1
-                       ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}})
-            {:config {:id 1}}))))
+(defn exhaust [port]
+  (go-loop [messages []]
+    (if-let [msg (<! port)]
+      (recur (conj messages msg))
+      messages)))
 
-  (testing "Resolves deps and loads data in batches"
-    (is (= [#{:data-1} #{:data-2}]
-           (sut/batches
-            (sut/resolve-deps
-             {:data-1 {::data-source/id ::test1
-                       ::data-source/params {:id 42}}
-              :data-2 {::data-source/id ::test1
-                       ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}})
-            {})))))
+(defn results [port]
+  (go (->> port
+           exhaust
+           <!
+           (map :result))))
 
-(deftest provide-deps-test
-  (testing "Interpolates deps into individual parameters"
-    (is (= {::data-source/params {:param "Data"}}
-           (sut/provide-deps {:data-1 {:some "Data"}}
-                             {::data-source/params {:param ^::data-source/dep [:data-1 :some]}}))))
+(defn sorted-results [port]
+  (go (sort-by #(-> % ::result/data :id) (<! (results port)))))
 
-  (testing "Provides full parameter map as dependency"
-    (is (= {::data-source/params {:some "Data"}}
-           (sut/provide-deps {:data-1 {:some "Data"}}
-                             {::data-source/params ^::data-source/dep [:data-1]})))))
+(defscenario-async "Fetches single data source"
+  (go
+    (is (= {:path :data-1
+            :source {::data-source/id :source-1
+                     ::data-source/params {}
+                     ::data-source/deps #{}}
+            :result {::result/success? true
+                     ::result/attempts 1
+                     ::result/data {}}}
+           (<! (sut/select (sut/fill {:data-1 {::data-source/id :source-1}}) [:data-1]))))))
 
-(defmethod data-source/fetch ::test1 [{:keys [pharmacist.data-source/params]}]
-  (a/go
-    (result/success {:input-params params})))
+(defscenario-async "Fetches multiple data sources"
+  (go
+    (is (= [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 1}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 2}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 3}}]
+           (-> {:data-1 {::data-source/id :source-1
+                         ::data-source/params {:id 1}}
+                :data-2 {::data-source/id :source-1
+                         ::data-source/params {:id 2}}
+                :data-3 {::data-source/id :source-1
+                         ::data-source/params {:id 3}}}
+               sut/fill
+               (sut/select [:data-1 :data-2 :data-3])
+               sorted-results
+               <!)))))
 
-(defmethod data-source/fetch ::fail1 [{:keys [pharmacist.data-source/params]}]
-  (a/go (result/failure {:error "Oops!!"})))
+(defscenario-async "Fetches only selected data sources"
+  (go
+    (is (= [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 1}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 3}}]
+           (-> {:data-1 {::data-source/id :source-1
+                         ::data-source/params {:id 1}}
+                :data-2 {::data-source/id :source-1
+                         ::data-source/params {:id 2}}
+                :data-3 {::data-source/id :source-1
+                         ::data-source/params {:id 3}}}
+               sut/fill
+               (sut/select [:data-1 :data-3])
+               sorted-results
+               <!)))))
 
-(deftest fill-prescription-test
-  (testing "Puts single data source result on channel"
-    (test-async
-     (test-within 1000
-       (a/go
-         (let [v (a/<! (sut/fill {:data-1 {::data-source/id ::test1
-                                           ::data-source/params {:id 42}}}))]
-           (is (= {:path [:data-1]
-                   :source {::data-source/id ::test1
-                            ::data-source/params {:id 42}
-                            ::data-source/deps #{}}
-                   :result {::result/success? true
-                            ::result/data {:input-params {:id 42}}
-                            ::result/attempts 1}} v)))))))
+(defscenario-async "Does not re-fetch sources from same filled prescription"
+  (go
+    (stub stub-1 [{:id 1}])
+    (let [filled (sut/fill {:data-1 {::data-source/id :stub-1
+                                     ::data-source/params {:id 1}}}
+                           {:params {:config {:id 42}}})]
+      (-> filled (sut/select [:data-1]) sorted-results <!)
+      (is (= [{:path :data-1
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1}}
+               :source {::data-source/id :stub-1
+                        ::data-source/params {:id 1}}}]
+             (<! (exhaust (sut/select filled [:data-1])))))
+      (is (= 1 (-> @stub-1 :calls count))))))
 
-  (testing "Consumes initial parameters as dependencies"
-    (test-async
-     (test-within 1000
-       (a/go
-         (let [v (a/<! (sut/fill {:data-1 {::data-source/id ::test1
-                                           ::data-source/params {:id ^::data-source/dep [:config :id]}}}
-                                 {:params {:config {:id 23}}}))]
-           (prn (:result v))
-           (is (= {::result/success? true
-                   ::result/data {:input-params {:id 23}}
-                   ::result/attempts 1}
-                  (:result v))))))))
+(defscenario-async "Fetches immediate dependency of selected data sources"
+  (go
+    (is (= [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 3}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 1 :dep 3}}]
+           (-> {:data-1 {::data-source/id :source-1
+                         ::data-source/params {:id 1
+                                               :dep ^::data-source/dep [:data-3 :id]}}
+                :data-3 {::data-source/id :source-1
+                         ::data-source/params {:id 3}}}
+               sut/fill
+               (sut/select [:data-1])
+               results
+               <!)))))
 
-  (testing "Emits message for un-attempted sources"
-    (test-async
-     (test-within 1000
-       (a/go
-         (let [ch (sut/fill {:data-1 {::data-source/id ::fail1
-                                      ::data-source/params {:id 42}}
-                             :data-2 {::data-source/id ::test1
-                                      ::data-source/params ^::data-source/dep [:data-1]}})
-               messages (loop [messages []]
-                          (if-let [message (a/<! ch)]
-                            (recur (conj messages message))
-                            messages))]
-           (is (= [[:data-1] [:data-2]]
-                  (mapv :path messages)))))))))
+(defscenario-async "Fetches all transitive dependencies of selected data sources"
+  (go
+    (is (= [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 3}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 2 :dep 3}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 1 :dep 3}}]
+           (-> {:data-1 {::data-source/id :source-1
+                         ::data-source/params {:id 1
+                                               :dep ^::data-source/dep [:data-2 :dep]}}
+                :data-2 {::data-source/id :source-1
+                         ::data-source/params {:id 2
+                                               :dep ^::data-source/dep [:data-3 :id]}}
+                :data-3 {::data-source/id :source-1
+                         ::data-source/params {:id 3}}}
+               sut/fill
+               (sut/select [:data-1])
+               results
+               <!)))))
 
-(deftest collect-test
-  (testing "Collects all successful events into a map"
-    (test-async
-     (test-within 1000
-       (a/go
-         (prn "[===]")
-         (let [data (-> {:data-1 {::data-source/id ::test1
-                                  ::data-source/params {:id 42}}
-                         :data-2 {::data-source/id ::test1
-                                  ::data-source/params {:id 13}}}
-                        sut/fill
-                        sut/collect
-                        a/<!
-                        ::result/data)]
-           (prn "[---]")
-           (is (= {:data-1 {:input-params {:id 42}}
-                   :data-2 {:input-params {:id 13}}}
-                  data)))))))
+(defscenario-async "Fetches sources with initial params"
+  (go
+    (is (= [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 42}}]
+           (-> {:data-1 {::data-source/id :source-1
+                         ::data-source/params {:id ^::data-source/dep [:config :dep]}}}
+               (sut/fill {:params {:config {:dep 42}}})
+               (sut/select [:data-1])
+               results
+               <!)))))
 
-  (testing "Provides dependencies to following batches"
-    (test-async
-     (test-within 1000
-       (a/go
-         (is (= {:data-1 {:input-params {:id 42}}
-                 :data-2 {:input-params {:secondary-id 42}}}
-                (-> {:data-1 {::data-source/id ::test1
-                              ::data-source/params {:id 42}}
-                     :data-2 {::data-source/id ::test1
-                              ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-                    sut/fill
-                    sut/collect
-                    a/<!
-                    ::result/data))))))))
+(defscenario-async "Gives up if requirements cannot be met"
+  (go
+    (is (= [{:path :data-1
+             :source {::data-source/id :source-1
+                      ::data-source/params {:id ^::data-source/dep [:config :dep]}
+                      ::data-source/deps #{:config}}
+             :result {::result/success? false
+                      ::result/attempts 0}}]
+           (-> {:data-1 {::data-source/id :source-1
+                         ::data-source/params {:id ^::data-source/dep [:config :dep]}}}
+               sut/fill
+               (sut/select [:data-1])
+               exhaust
+               <!)))))
 
-(defmethod data-source/fetch-sync ::test2 [{:keys [pharmacist.data-source/params]}]
-  (if (get params :succeed? true)
-    (result/success {:input-params params})
-    (result/failure {:error "Fail"})))
+(defmethod data-source/fetch-sync :source-2 [{::data-source/keys [params]}]
+  (result/success params {:data-1 {::data-source/id :source-1
+                                   ::data-source/params {:id "Nested"}}}))
 
-(deftest fill-sync-test
-  (testing "Fills prescription synchronously"
-    (is (= (-> {:data-1 {::data-source/id ::test2
-                         ::data-source/params {:id 42}}
-                :data-2 {::data-source/id ::test2
-                         ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-               sut/fill-sync
-               ::result/data)
-           {:data-1 {:input-params {:id 42}}
-            :data-2 {:input-params {:secondary-id 42}}})))
+(defscenario-async "Does not fetch nested prescriptions by default"
+  (go
+    (is (= [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 42}
+             ::result/prescriptions {:data-1 {::data-source/id :source-1
+                                              ::data-source/params {:id "Nested"}}}}]
+           (-> {:data-1 {::data-source/id :source-2
+                         ::data-source/params {:id 42}}}
+               sut/fill
+               (sut/select [:data-1])
+               results
+               <!)))))
 
-  (testing "Indicates overall success"
-    (is (-> {:data-1 {::data-source/id ::test2
-                      ::data-source/params {:id 42}}
-             :data-2 {::data-source/id ::test2
-                      ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-            sut/fill-sync
-            ::result/success?)))
+(defscenario-async "Fetches nested prescriptions from prescription"
+  (go
+    (is (= [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 42}
+             ::result/prescriptions {:data-1 {::data-source/id :source-1
+                                              ::data-source/params {:id "Nested"}}}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id "Nested"}}]
+           (-> {:data-1 {::data-source/id :source-2
+                         ::data-source/params {:id 42}
+                         ::data-source/nested-prescriptions #{:source-1}}}
+               sut/fill
+               (sut/select [:data-1])
+               results
+               <!)))))
 
-  (testing "Includes all sources and results"
-    (is (= (-> {:data-1 {::data-source/id ::test2
-                         ::data-source/params {:id 42}}
-                :data-2 {::data-source/id ::test2
-                         ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-               sut/fill-sync
-               ::result/sources)
-           [{:path [:data-1]
-             :source {::data-source/id ::test2
-                      ::data-source/params {:id 42}
+(defscenario-async "Fetches all nested prescriptions"
+  (go
+    (is (= [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 42}
+             ::result/prescriptions {:data-1 {::data-source/id :source-1
+                                              ::data-source/params {:id "Nested"}}}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id "Nested"}}]
+           (-> {:data-1 {::data-source/id :source-2
+                         ::data-source/params {:id 42}}}
+               (sut/fill {:walk-nested-prescriptions? true})
+               (sut/select [:data-1])
+               results
+               <!)))))
+
+(defmethod data-source/fetch-sync :source-3 [{::data-source/keys [params]}]
+  (result/success params {:nested {::data-source/id :source-2
+                                     ::data-source/params {:id "Deeply nested"}}}))
+
+(defscenario-async "Nests prescriptions recursively"
+  (go
+    (is (= [{:path :data-1
+             :result {:pharmacist.result/attempts 1
+                      :pharmacist.result/data {:id 42}
+                      :pharmacist.result/prescriptions {:nested {:pharmacist.data-source/id :source-2
+                                                                 :pharmacist.data-source/params {:id "Deeply nested"}}}
+                      :pharmacist.result/success? true}
+             :source {:pharmacist.data-source/deps #{}
+                      :pharmacist.data-source/id :source-3
+                      :pharmacist.data-source/params {:id 42}}}
+            {:path [:data-1 :nested]
+             :result {:pharmacist.result/attempts 1
+                      :pharmacist.result/data {:id "Deeply nested"}
+                      :pharmacist.result/prescriptions {:data-1 {:pharmacist.data-source/id :source-1
+                                                                 :pharmacist.data-source/params {:id "Nested"}}}
+                      :pharmacist.result/success? true}
+             :source {:pharmacist.data-source/deps #{}
+                      :pharmacist.data-source/id :source-2
+                      :pharmacist.data-source/params {:id "Deeply nested"}}}
+            {:path [:data-1 :nested :data-1]
+             :result {:pharmacist.result/attempts 1
+                      :pharmacist.result/data {:id "Nested"}
+                      :pharmacist.result/success? true}
+             :source {:pharmacist.data-source/deps #{}
+                      :pharmacist.data-source/id :source-1
+                      :pharmacist.data-source/params {:id "Nested"}}}]
+           (-> {:data-1 {::data-source/id :source-3
+                         ::data-source/params {:id 42}}}
+               (sut/fill {:walk-nested-prescriptions? true})
+               (sut/select [:data-1])
+               exhaust
+               <!)))))
+
+(def stub-2 (atom {}))
+
+(defmethod data-source/fetch-sync :stub-2 [{::data-source/keys [params] :as args}]
+  (let [val (-> @stub-2 :returns last)]
+    (swap! stub-2 update :returns #(when (seq %) (pop %)))
+    (swap! stub-2 update :calls conj args)
+    (or val (result/failure))))
+
+(defscenario-async "Retries failing fetch"
+  (go
+    (stub stub-2 [(result/failure {:message "Oops!"})
+                  (result/success {:id 13})])
+    (is (= [{:path :data-1
+             :source {::data-source/id :stub-2
+                      ::data-source/params {}
+                      ::data-source/retries 1
                       ::data-source/deps #{}}
-             :result {::result/success? true
-                      ::result/data {:input-params {:id 42}}
+             :result {::result/success? false
+                      ::result/data {:message "Oops!"}
                       ::result/attempts 1}}
-
-            {:path [:data-2]
-             :source {::data-source/id ::test2
-                      ::data-source/params {:secondary-id 42}
-                      ::data-source/deps #{:data-1}}
-             :result {::result/success? true
-                      ::result/data {:input-params {:secondary-id 42}}
-                      ::result/attempts 1}}])))
-
-  (testing "Indicates overall failure if a single source fails"
-    (is (-> {:data-1 {::data-source/id ::test2
-                      ::data-source/params {:id 42 :succeed? false}}
-             :data-2 {::data-source/id ::test2
-                      ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-            sut/fill-sync
-            ::result/success?
-            not)))
-
-  (testing "Still provides what data is available for partial success"
-    (is (= (-> {:data-1 {::data-source/id ::test2
-                         ::data-source/params {:id 42}}
-                :data-2 {::data-source/id ::test2
-                         ::data-source/params {:succeed? false}}}
-               sut/fill-sync
-               (select-keys [::result/data ::result/success?]))
-           {::result/success? false
-            ::result/data {:data-1 {:input-params {:id 42}}}})))
-
-  (testing "Reports results for un-attempted sources"
-    (is (= (-> {:data-1 {::data-source/id ::test2
-                         ::data-source/params {:id 42 :succeed? false}}
-                :data-2 {::data-source/id ::test2
-                         ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-               sut/fill-sync
-               ::result/sources)
-           [{:path [:data-1]
-             :source {::data-source/id ::test2
-                      ::data-source/params {:id 42 :succeed? false}
+            {:path :data-1
+             :source {::data-source/id :stub-2
+                      ::data-source/params {}
+                      ::data-source/retries 1
                       ::data-source/deps #{}}
+             :result {::result/success? true
+                      ::result/data {:id 13}
+                      ::result/attempts 2}}]
+           (-> {:data-1 {::data-source/id :stub-2
+                         ::data-source/params {}
+                         ::data-source/retries 1}}
+               sut/fill
+               (sut/select [:data-1])
+               exhaust
+               <!)))))
+
+(defscenario-async "Does not retry when retries is not set"
+  (go
+    (stub stub-2 [(result/failure {:message "Oops!"})])
+    (is (= [{:path :data-1
+             :source {::data-source/id :stub-2
+                      ::data-source/params {}
+                      ::data-source/deps #{}}
+             :result {::result/success? false
+                      ::result/data {:message "Oops!"}
+                      ::result/attempts 1}}]
+           (-> {:data-1 {::data-source/id :stub-2
+                         ::data-source/params {}}}
+               sut/fill
+               (sut/select [:data-1])
+               exhaust
+               <!)))))
+
+(defscenario-async "Gives up after retrying n times"
+  (go
+    (stub stub-2 [(result/failure {:message "Oops!"})
+                  (result/failure {:message "Oops!"})
+                  (result/failure {:message "Oops!"})])
+    (is (= [{::result/success? false
+             ::result/data {:message "Oops!"}
+             ::result/attempts 1}
+            {::result/success? false
+             ::result/data {:message "Oops!"}
+             ::result/attempts 2}
+            {::result/success? false
+             ::result/data {:message "Oops!"}
+             ::result/attempts 3}
+            {::result/success? false
+             ::result/attempts 0}]
+           (-> {:data-1 {::data-source/id :stub-2
+                         ::data-source/retries 2
+                         ::data-source/params {}}
+                :data-2 {::data-source/id :stub-2
+                         ::data-source/params ^::data-source/dep [:data-1 :id]}}
+               sut/fill
+               (sut/select [:data-2])
+               results
+               <!)))))
+
+(defscenario-async "Same filled prescription does not further retry failed source"
+  (go
+    (stub stub-2 [(result/failure {:message "Oops!"})
+                  (result/failure {:message "Oops!"})])
+    (let [filled (sut/fill {:data-1 {::data-source/id :stub-2
+                                     ::data-source/retries 1
+                                     ::data-source/params {}}})]
+      (<! (exhaust (sut/select filled [:data-1])))
+      (is (= [{::result/success? false
+               ::result/data {:message "Oops!"}
+               ::result/attempts 2}]
+             (<! (results (sut/select filled [:data-1]))))))))
+
+(defmethod data-source/fetch-sync :with-refresh [{::data-source/keys [params]}]
+  (if (= 1 (:id params))
+    (result/failure {:message "Oops!"} {::result/refresh #{:id}})
+    (result/success params)))
+
+(defscenario-async "Refreshes dependency before retrying"
+  (go
+    (stub stub-1 [{:id 1} {:id 2}])
+    (is (= [{:path :data-1
+             :source {::data-source/deps #{}
+                      ::data-source/id :stub-1
+                      ::data-source/params {}}
+             :result {::result/attempts 1
+                      ::result/data {:id 1}
+                      ::result/success? true}}
+            {:path :data-2
+             :source {::data-source/deps #{:data-1}
+                      ::data-source/id :with-refresh
+                      ::data-source/params {:id 1}
+                      ::data-source/retries 2}
+             :result {::result/attempts 1
+                      ::result/data {:message "Oops!"}
+                      ::result/refresh #{:id}
+                      ::result/success? false}}
+            {:path :data-1
+             :source {::data-source/deps #{}
+                      ::data-source/id :stub-1
+                      ::data-source/params {}}
+             :result {::result/attempts 2
+                      ::result/data {:id 2}
+                      ::result/success? true}}
+            {:path :data-2
+             :source {::data-source/deps #{:data-1}
+                      ::data-source/id :with-refresh
+                      ::data-source/params {:id 2}
+                      ::data-source/retries 2}
+             :result {::result/attempts 2
+                      ::result/data {:id 2}
+                      ::result/success? true}}]
+           (-> {:data-1 {::data-source/id :stub-1}
+                :data-2 {::data-source/id :with-refresh
+                         ::data-source/retries 2
+                         ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
+               sut/fill
+               (sut/select [:data-2])
+               exhaust
+               <!)))))
+
+(defmethod data-source/fetch-sync :with-params-refresh [{::data-source/keys [params]}]
+  (if (= 1 (:id params))
+    (result/failure {:message "Oops!"} {::result/refresh #{::data-source/params}})
+    (result/success params)))
+
+(defscenario-async "Refreshes full params dependency"
+  (go
+    (stub stub-1 [{:id 1} {:id 2}])
+    (is (= [{:path :data-1
+             :source {::data-source/deps #{}
+                      ::data-source/id :stub-1
+                      ::data-source/params {}}
+             :result {::result/success? true
+                      ::result/attempts 1
+                      ::result/data {:id 1}}}
+            {:path :data-2
+             :source {::data-source/deps #{:data-1}
+                      ::data-source/id :with-params-refresh
+                      ::data-source/params {:id 1}
+                      ::data-source/retries 2}
              :result {::result/success? false
                       ::result/attempts 1
-                      ::result/data {:error "Fail"}}}
+                      ::result/data {:message "Oops!"}
+                      ::result/refresh #{::data-source/params}}}
+            {:path :data-1
+             :source {::data-source/deps #{}
+                      ::data-source/id :stub-1
+                      ::data-source/params {}}
+             :result {::result/success? true
+                      ::result/attempts 2
+                      ::result/data {:id 2}}}
+            {:path :data-2
+             :source {::data-source/deps #{:data-1}
+                      ::data-source/id :with-params-refresh
+                      ::data-source/params {:id 2}
+                      ::data-source/retries 2}
+             :result {::result/success? true
+                      ::result/attempts 2
+                      ::result/data {:id 2}}}]
+           (-> {:data-1 {::data-source/id :stub-1}
+                :data-2 {::data-source/id :with-params-refresh
+                         ::data-source/retries 2
+                         ::data-source/params ^::data-source/dep [:data-1]}}
+               sut/fill
+               (sut/select [:data-2])
+               exhaust
+               <!)))))
 
-            {:path [:data-2]
-             :source {::data-source/id ::test2
-                      ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}
-                      ::data-source/deps #{:data-1}}
-             :result {::result/success? false
-                      ::result/attempts 0}}]))))
-
-(deftest cached-fill-test
-  (testing "fill gets cached data when available"
-    (test-async
-     (test-within 1000
-       (a/go
-         (let [prescription {::data-source/id ::test2
-                             ::data-source/params {:id 42}}
-               v (a/<! (sut/fill {:data-1 prescription}
-                                 (cache/atom-map (atom {(cache/cache-key prescription)
-                                                        {::result/success? true
-                                                         ::result/data {:input-params {:id 333}}}}))))]
-           (is (= {::result/success? true
-                   ::result/data {:input-params {:id 333}}
-                   ::result/attempts 0}
-                  (:result v))))))))
-
-  (testing "fill gets cached data with resolved parameters"
-    (test-async
-     (test-within 1000
-       (a/go
-         (let [prescription {::data-source/id ::test2
-                             ::data-source/params {:id ^::data-source/dep [:config :id]}}
-               k (cache/cache-key {::data-source/id ::test2
-                                   ::data-source/params {:id 1337}})
-               v (a/<! (sut/fill {:data-1 prescription}
-                                 (assoc (cache/atom-map (atom {k (result/success {:input-params {:id 333}})}))
-                                        :params {:config {:id 1337}})))]
-           (is (= {::result/success? true
-                   ::result/data {:input-params {:id 333}}
-                   ::result/attempts 0}
-                  (:result v))))))))
-
-  (testing "fill caches data when successful"
-    (test-async
-     (test-within 1000
-       (let [cache (atom {})]
-         (a/go
-           (a/<! (sut/fill {:data-1 {::data-source/id ::test2
-                                     ::data-source/params {:id 42}}}
-                           (cache/atom-map cache)))
-           (is (= {::result/success? true
-                   ::result/data {:input-params {:id 42}}}
-                  (-> @cache vals first (select-keys [::result/success? ::result/data])))))))))
-
-  (testing "fill does not cache unsuccessful data"
-    (test-async
-     (test-within 1000
-       (let [cache (atom {})]
-         (a/go
-           (a/<! (sut/fill {:data-1 {::data-source/id ::test2
-                                     ::data-source/params {:succeed? false}}}
-                           (cache/atom-map cache)))
-           (is (nil? (-> @cache vals first))))))))
-
-  (testing "fill-sync gets cached data when it exists"
-    (let [prescription {::data-source/id ::test2
-                        ::data-source/params {:id 42}}]
-      (is (= (-> {:data-1 prescription
-                  :data-2 {::data-source/id ::test2
-                           ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-                 (sut/fill-sync (cache/atom-map (atom {(cache/cache-key prescription)
-                                                       {::result/success? true
-                                                        ::result/data {:input-params {:id 111}}}})))
-                 ::result/data)
-             {:data-1 {:input-params {:id 111}}
-              :data-2 {:input-params {:secondary-id 111}}}))))
-
-  (testing "fill-sync gets cached data with resolved params"
-    (let [prescription {::data-source/id ::test2
-                        ::data-source/params {:id ^::data-source/dep [:config :id]}}
-          k (cache/cache-key {::data-source/id ::test2
-                              ::data-source/params {:id 42}})]
-      (is (= (-> {:data-1 prescription
-                  :data-2 {::data-source/id ::test2
-                           ::data-source/params {:secondary-id ^::data-source/dep [:data-1 :input-params :id]}}}
-                 (sut/fill-sync (assoc (cache/atom-map (atom {k (result/success {:input-params {:id 111}})}))
-                                       :params {:config {:id 42}}))
-                 ::result/data
-                 (select-keys [:data-1 :data-2]))
-             {:data-1 {:input-params {:id 111}}
-              :data-2 {:input-params {:secondary-id 111}}}))))
-
-  (testing "fill-sync caches data when successful"
-    (let [cache (atom {})]
-      (sut/fill-sync {:data-1 {::data-source/id ::test2
-                               ::data-source/params {:id 42}}}
-                     (cache/atom-map cache))
+(defscenario-async "Collects results"
+  (go
+    (stub stub-1 [{:id 1} {:id 2}])
+    (let [result (-> {:data-1 {::data-source/id :stub-1}
+                      :data-2 {::data-source/id :with-refresh
+                               ::data-source/retries 2
+                               ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
+                     sut/fill
+                     (sut/select [:data-2])
+                     sut/collect
+                     <!)]
       (is (= {::result/success? true
-              ::result/data {:input-params {:id 42}}}
-             (-> @cache vals first (select-keys [::result/success? ::result/data]))))))
+              ::result/data {:data-1 {:id 2}
+                             :data-2 {:id 2}}}
+             (dissoc result ::result/sources)))
+      (is (= 4 (count (::result/sources result)))))))
 
-  (testing "fill-sync does not cache already cached data"
-    (let [cache (atom {})
-          stub (atom [])]
-      (sut/fill-sync {:data-1 {::data-source/id ::test2
-                               ::data-source/params {:id 42}}}
-                     (cache/atom-map cache))
-      (sut/fill-sync {:data-1 {::data-source/id ::test2
-                               ::data-source/params {:id 42}}}
-                     {:cache-get (:cache-get (cache/atom-map cache))
-                      :cache-put (fn [path prescription v]
-                                   (prn v)
-                                   (swap! stub conj path))})
-      (is (= [] @stub))))
+(defscenario-async "Collects partial data with failed overall success indicator"
+  (go
+    (stub stub-1 [{:id 1} {:id 2}])
+    (let [result (-> {:data-1 {::data-source/id :stub-1}
+                      :data-2 {::data-source/id :with-refresh
+                               ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
+                     sut/fill
+                     (sut/select [:data-2])
+                     sut/collect
+                     <!)]
+      (is (= {::result/success? false
+              ::result/data {:data-1 {:id 1}}}
+             (dissoc result ::result/sources)))
+      (is (= 2 (count (::result/sources result)))))))
 
-  (testing "fill-sync does not cache unsuccessful data"
+(defmethod data-source/fetch-sync :squared [{::data-source/keys [params]}]
+  (result/success (* (:number params) (:number params))))
+
+(defmethod data-source/fetch-sync :doubled [{::data-source/keys [params]}]
+  (result/success (* (:number params) 2)))
+
+(defscenario "Collects final result into map of data, sync"
+  (is (= {:data-1 9
+          :data-2 18}
+         (::result/data
+          (<!!
+           (sut/collect
+            (sut/select
+             (sut/fill {:data-1 {::data-source/id :squared
+                                 ::data-source/params {:number 3}}
+                        :data-2 {::data-source/id :doubled
+                                 ::data-source/params {:number ^::data-source/dep [:data-1]}}})
+             [:data-2])))))))
+
+(defscenario-async "Retrieves cached result"
+  (go
+    (let [prescription {::data-source/id :source-1}
+          cache (atom {(cache/cache-key prescription)
+                       {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 333}}})]
+      (is (= {:path :data-1
+              :source {::data-source/id :source-1
+                       ::data-source/params {}}
+              :result {::result/success? true
+                       ::result/attempts 0
+                       ::result/data {:id 333}
+                       ::result/cached? true}}
+             (<! (sut/select
+                  (sut/fill {:data-1 prescription} (cache/atom-map cache))
+                  [:data-1])))))))
+
+(defscenario-async "Ignores cache when refreshing"
+  (go
+    (stub stub-1 [{:id 666}])
+    (let [prescription {::data-source/id :stub-1}
+          cache (atom {(cache/cache-key prescription)
+                       {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1}}})]
+      (is (= [{:path :data-1
+               :source {::data-source/deps #{}
+                        ::data-source/id :stub-1
+                        ::data-source/params {}}
+               :result {::result/attempts 0
+                        ::result/cached? true
+                        ::result/data {:id 1}
+                        ::result/success? true}}
+              {:path :data-2
+               :source {::data-source/deps #{:data-1}
+                        ::data-source/id :with-refresh
+                        ::data-source/params {:id 1}
+                        ::data-source/retries 2}
+               :result {::result/attempts 1
+                        ::result/data {:message "Oops!"}
+                        ::result/refresh #{:id}
+                        ::result/success? false}}
+              {:path :data-1
+               :source {::data-source/deps #{}
+                        ::data-source/id :stub-1
+                        ::data-source/params {}}
+               :result {::result/attempts 1
+                        ::result/data {:id 666}
+                        ::result/success? true}}
+              {:path :data-2
+               :source {::data-source/deps #{:data-1}
+                        ::data-source/id :with-refresh
+                        ::data-source/params {:id 666}
+                        ::data-source/retries 2}
+               :result {::result/attempts 2
+                        ::result/data {:id 666}
+                        ::result/success? true}}]
+             (-> {:data-1 prescription
+                  :data-2 {::data-source/id :with-refresh
+                           ::data-source/retries 2
+                           ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
+                 (sut/fill (cache/atom-map cache))
+                 (sut/select [:data-2])
+                 exhaust
+                 <!))))))
+
+(defscenario-async "Retrieves cached result by resolved params"
+  (go
+    (let [cache (atom {(cache/cache-key {::data-source/id :source-1
+                                         ::data-source/params {:dep 42}})
+                       {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 333}}})]
+      (is (= [{:path :data-2
+               :source {::data-source/id :source-1
+                        ::data-source/deps #{}
+                        ::data-source/params {:id 42}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 42}}}
+              {:path :data-1
+               :source {::data-source/id :source-1
+                        ::data-source/deps #{:data-2}
+                        ::data-source/params {:dep 42}}
+               :result {::result/success? true
+                        ::result/attempts 0
+                        ::result/data {:id 333}
+                        ::result/cached? true}}]
+             (<! (exhaust
+                  (sut/select
+                   (sut/fill {:data-1 {::data-source/id :source-1
+                                       ::data-source/params {:dep ^::data-source/dep [:data-2 :id]}}
+                              :data-2 {::data-source/id :source-1
+                                       ::data-source/params {:id 42}}}
+                             (cache/atom-map cache))
+                   [:data-1]))))))))
+
+(defmethod data-source/cache-params :cache-1 [_]
+  #{:id})
+
+(defscenario-async "Does not fetch dependency when depending param is not part of cache key"
+  (go
+    (let [prescription {::data-source/id :cache-1
+                        ::data-source/params {:id 1
+                                              :dep ^::data-source/dep [:data-2 :id]}}
+          cache (atom {(cache/cache-key prescription)
+                       {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 333}}})]
+      (is (= [{:path :data-1
+               :source {::data-source/id :cache-1
+                        ::data-source/params {:id 1 :dep [:data-2 :id]}}
+               :result {::result/success? true
+                        ::result/attempts 0
+                        ::result/cached? true
+                        ::result/data {:id 333}}}]
+             (<! (exhaust
+                  (sut/select
+                   (sut/fill {:data-1 prescription
+                              :data-2 {::data-source/id :source-1
+                                       ::data-source/params {:id 42}}}
+                             (cache/atom-map cache))
+                   [:data-1]))))))))
+
+(defscenario-async "Fetches nested prescriptions from cached result"
+  (go
+    (let [prescription {::data-source/id :source-2
+                        ::data-source/params {:id 42}
+                        ::data-source/nested-prescriptions #{:source-1}}
+          cache (atom {(cache/cache-key prescription)
+                       {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 333}
+                        ::result/prescriptions {:data-1 {::data-source/id :source-1
+                                                         ::data-source/params {:id "Nested"}}}}})]
+      (is (= [{::result/success? true
+               ::result/attempts 0
+               ::result/cached? true
+               ::result/data {:id 333}
+               ::result/prescriptions {:data-1 {::data-source/id :source-1
+                                                ::data-source/params {:id "Nested"}}}}
+              {::result/success? true
+               ::result/attempts 1
+               ::result/data {:id "Nested"}}]
+             (-> (sut/fill {:data-1 prescription} (cache/atom-map cache))
+                 (sut/select [:data-1])
+                 results
+                 <!))))))
+
+(defscenario-async "caches data when successful"
+  (go
     (let [cache (atom {})]
-      (sut/fill-sync {:data-1 {::data-source/id ::test2
-                               ::data-source/params {:succeed? false}}}
-                     (cache/atom-map cache))
-      (is (nil? (-> @cache vals first))))))
+      (-> {:data-1 {::data-source/id :source-1
+                    ::data-source/params {:id 43}}}
+          (sut/fill (cache/atom-map cache))
+          (sut/select [:data-1])
+          <!)
+      (<! (timeout 10))
+      (is (= {::result/success? true
+              ::result/attempts 1
+              ::result/data {:id 43}}
+             (-> @cache vals first (dissoc ::cache/cached-at)))))))
 
-(def stub-data (atom []))
+(defscenario-async "does not cache unsuccessful data"
+  (go
+    (stub stub-2 [(result/failure {:message "Oops!"})])
+    (let [cache (atom {})]
+      (-> {:data-1 {::data-source/id :stub-2}}
+          (sut/fill (cache/atom-map cache))
+          (sut/select [:data-1])
+          <!)
+      (<! (timeout 10))
+      (is (= {} @cache)))))
 
-(defn- stub-behavior []
-  (let [res (first @stub-data)]
-    (swap! stub-data rest)
-    res))
-
-(defmethod data-source/fetch-sync :stub1 [prescription]
-  (stub-behavior))
-
-(defmethod data-source/fetch :stub2 [prescription]
-  (a/go (stub-behavior)))
-
-(deftest retry-test
-  (testing "Retries sync source"
-    (reset! stub-data [{::result/success? false}
+(defscenario-async "does not re-cache data"
+  (go
+    (let [prescription {::data-source/id :cache-1
+                        ::data-source/params {:id 1
+                                              :dep ^::data-source/dep [:data-2 :id]}}
+          cache-key (cache/cache-key prescription)
+          cache (atom {cache-key
                        {::result/success? true
-                        ::result/data {:id 6}}])
-    (sut/fill-sync {:data-1 {::data-source/id :stub1
-                             ::data-source/retries 3}})
-    (is (= [] @stub-data)))
-
-  (testing "Gives up after the afforded retries"
-    (reset! stub-data [{::result/success? false}
-                       {::result/success? false}
-                       {::result/success? false}
-                       {::result/success? true
-                        ::result/data {:id 6}}])
-    (sut/fill-sync {:data-1 {::data-source/id :stub1
-                             ::data-source/retries 2}})
-    (is (= 1 (count @stub-data))))
-
-  (testing "Stops retrying if result is not retryable"
-    (reset! stub-data [{::result/success? false}
-                       {::result/success? false
-                        ::result/retryable? false}
-                       {::result/success? false}
-                       {::result/success? true
-                        ::result/data {:id 6}}])
-    (sut/fill-sync {:data-1 {::data-source/id :stub1
-                             ::data-source/retries 2}})
-    (is (= 2 (count @stub-data))))
-
-  (testing "Indicates number of attempts in result"
-    (reset! stub-data [{::result/success? false}
-                       {::result/success? false}
-                       {::result/success? false}
-                       {::result/success? true
-                        ::result/data {:id 6}}])
-    (is (= (-> (sut/fill-sync {:data-1 {::data-source/id :stub1
-                                        ::data-source/retries 3}})
-               ::result/sources
-               first
-               :result
-               ::result/attempts)
-           4)))
-
-  (testing "Retries async source"
-    (test-async
-     (test-within 1000
-       (a/go
-         (reset! stub-data [{::result/success? false}
-                            {::result/success? true
-                             ::result/data {:id 6}}])
-         (is (map? (a/<! (sut/fill {:data-1 {::data-source/id :stub2
-                                             ::data-source/retries 3}}))))
-         (is (= [] @stub-data))))))
-
-  (testing "Gives up async after the afforded retries"
-    (test-async
-     (test-within 1000
-       (a/go
-         (reset! stub-data [{::result/success? false}
-                            {::result/success? false}
-                            {::result/success? false}
-                            {::result/success? true
-                             ::result/data {:id 6}}])
-         (a/<! (sut/fill {:data-1 {::data-source/id :stub2
-                                   ::data-source/retries 2}}))
-         (is (= 1 (count @stub-data)))))))
-
-  (testing "Stops retrying async fetch if result is not retryable"
-    (test-async
-     (test-within 1000
-       (a/go
-         (reset! stub-data [{::result/success? false}
-                            {::result/success? false
-                             ::result/retryable? false}
-                            {::result/success? false}
-                            {::result/success? true
-                             ::result/data {:id 6}}])
-         (a/<! (sut/fill {:data-1 {::data-source/id :stub2
-                                   ::data-source/retries 2}}))
-         (is (= 2 (count @stub-data)))))))
-
-  (testing "Indicates number of attempts in async result"
-    (test-async
-     (test-within 1000
-       (a/go
-         (reset! stub-data [{::result/success? false}
-                            {::result/success? false}
-                            {::result/success? false}
-                            {::result/success? true
-                             ::result/data {:id 6}}])
-         (is (= (-> (sut/fill {:data-1 {::data-source/id :stub2
-                                        ::data-source/retries 3}})
-                    sut/collect
-                    a/<!
-                    ::result/sources
-                    first
-                    :result
-                    ::result/attempts)
-                4)))))))
-
-(defmethod data-source/fetch-sync :stub3-nested [prescription]
-  (stub-behavior))
-
-(defmethod data-source/fetch-sync :stub3 [prescription]
-  (result/success {:id 12} [[[:nested-source] {::data-source/id :stub3-nested}]]))
-
-(deftest nested-prescriptions-test
-  (testing "Does not fill nested prescription by default"
-    (is (= (select-keys (sut/fill-sync {:data-1 {::data-source/id :stub3}}) [::result/data ::result/success?])
-           {::result/data {:data-1 {:id 12}}
-            ::result/success? true})))
-
-  (testing "Reveals unloaded nested sources in sources"
-    (is (= (->> (sut/fill-sync {:data-1 {::data-source/id :stub3}})
-                ::result/sources
-                (map #(select-keys % [:path :source])))
-           [{:path [:data-1]
-             :source {::data-source/id :stub3
-                      ::data-source/params {}
-                      ::data-source/deps #{}}}
-            {:path [:data-1 :nested-source]
-             :source {::data-source/id :stub3-nested
-                      ::data-source/fetch? false
-                      ::data-source/deps #{}}}])))
-
-  (testing "Has no result for un-attempted nested prescriptions"
-    (is (nil? (-> (sut/fill-sync {:data-1 {::data-source/id :stub3}})
-                  ::result/sources
-                  second
-                  :result)))))
+                        ::result/attempts 1
+                        ::result/data {:id 333}
+                        ::cache/cached-at 1548695867223}})]
+      (<! (exhaust
+           (sut/select
+            (sut/fill {:data-1 prescription
+                       :data-2 {::data-source/id :source-1
+                                ::data-source/params {:id 42}}}
+                      (cache/atom-map cache))
+            [:data-1])))
+      (is (= 1548695867223 (::cache/cached-at (get @cache cache-key)))))))
 
 (schema/defschema ::mapped-source :source1/entity
   :source1/some-attr {::schema/source :some-attr}
@@ -646,20 +836,76 @@
 (defmethod data-source/fetch-sync ::mapped-source [prescription]
   (result/success {:some-attr "LOL"}))
 
-(defmethod data-source/fetch-sync ::echo [prescription]
-  (result/success (::data-source/params prescription)))
+(defmethod data-source/fetch-sync ::echo [{::data-source/keys [params]}]
+  (result/success params))
 
-(deftest data-coercion-test
-  (testing "Maps result with defined schema"
+(defscenario-async "Maps result with defined schema"
+  (go
     (is (= {:data {:source1/some-attr "LOL"}}
-           (-> (sut/fill-sync {:data {::data-source/id ::mapped-source}})
-               ::result/data))))
+           (-> (sut/fill {:data {::data-source/id ::mapped-source}})
+               (sut/select [:data])
+               sut/collect
+               <!
+               ::result/data)))))
 
-  (testing "Passes coerced data as dependencies"
+(defscenario-async "Passes coerced data as dependencies"
+  (go
     (is (= {:data {:source1/some-attr "LOL"}
             :data2 {:input "LOL"}}
-           (-> (sut/fill-sync
-                {:data {::data-source/id ::mapped-source}
-                 :data2 {::data-source/id ::echo
-                         ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}})
+           (-> (sut/fill {:data {::data-source/id ::mapped-source}
+                          :data2 {::data-source/id ::echo
+                                  ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}})
+               (sut/select [:data2])
+               sut/collect
+               <!
                ::result/data)))))
+
+(defscenario-async "Always gets coerced data from same filled prescription"
+  (go
+    (let [prescription {:data {::data-source/id ::mapped-source}
+                        :data2 {::data-source/id ::echo
+                                ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}
+          filled (sut/fill prescription)]
+      (-> filled (sut/select [:data2] sut/collect <!))
+      (is (= {:data {:source1/some-attr "LOL"}
+              :data2 {:input "LOL"}}
+             (-> filled
+                 (sut/select [:data2])
+                 sut/collect
+                 <!
+                 ::result/data))))))
+
+(defscenario-async "Returns coerced cached data"
+  (go
+    (let [opt (cache/atom-map (atom {}))
+          prescription {:data {::data-source/id ::mapped-source}
+                        :data2 {::data-source/id ::echo
+                                ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}]
+      (<! (exhaust (sut/select (sut/fill prescription opt) [:data2])))
+      (is (= {:data {:source1/some-attr "LOL"}
+              :data2 {:input "LOL"}}
+             (-> prescription
+                 (sut/fill opt)
+                 (sut/select [:data2])
+                 sut/collect
+                 <!
+                 ::result/data))))))
+
+(defscenario-async "Yields no messages when selecting non-existent key"
+  (go
+    (is (= []
+           (-> (sut/fill {:data {::data-source/id :source-1}})
+               (sut/select [:non-existent])
+               exhaust
+               <!)))))
+
+(defscenario-async "Yields no messages when selecting non-existent key with cache"
+  (go
+    (is (= []
+           (-> {:data {::data-source/id ::mapped-source}
+                :data2 {::data-source/id ::echo
+                        ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}
+               (sut/fill (cache/atom-map (atom {})))
+               (sut/select [:non-existent])
+               exhaust
+               <!)))))

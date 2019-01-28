@@ -51,8 +51,7 @@
                          :clj 'clojure.spec.alpha/coll-of))
          first)))
 
-(defn- lookup [{:keys [pharmacist.schema/source
-                       pharmacist.schema/coerce]
+(defn- lookup [{::keys [source coerce]
                 :as keyspec} data k & [default]]
   (let [v (cond
             (nil? source) (get data k default)
@@ -68,7 +67,7 @@
       v)))
 
 (defn coerce [schema data k]
-  (let [{:keys [pharmacist.schema/spec] :as keyspec} (schema k)
+  (let [{::keys [spec] :as keyspec} (schema k)
         ks (specced-keys spec)
         collection-type (coll-of spec)]
     (cond
@@ -82,9 +81,9 @@
                         (map #(coerce schema % collection-type) coll))
       :default (lookup keyspec data k))))
 
-(defmulti coerce-data (fn [data-source-id data] data-source-id))
+(defmulti coerce-data (fn [source data] (:pharmacist.data-source/id source)))
 
-(defmethod coerce-data :default [data-source-id data]
+(defmethod coerce-data :default [source data]
   data)
 
 (defn defschema [data-source-id root-spec & {:as schema}]

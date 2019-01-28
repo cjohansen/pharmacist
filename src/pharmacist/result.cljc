@@ -8,7 +8,9 @@
 (s/def ::success? boolean?)
 (s/def ::path (s/coll-of keyword?))
 (s/def ::data any?)
-(s/def ::prescriptions (s/coll-of (s/tuple (s/coll-of keyword?) ::data-source/prescription)))
+(s/def ::prescriptions (s/map-of (s/or :keyword keyword?
+                                       :path (s/coll-of (s/or :keyword keyword?
+                                                              :number number?))) ::data-source/prescription))
 (s/def ::result (s/keys :req [::success?]
                         :opt [::path ::data ::prescriptions]))
 
@@ -40,13 +42,16 @@
   :ret ::result)
 
 (s/def ::failure-args (s/or :nullary (s/cat)
-                            :unary (s/cat :data any?)))
+                            :unary (s/cat :data any?)
+                            :binary (s/cat :data any?
+                                           :config map?)))
 
 (defn failure
   "Create a failed result, optionally with data"
-  [& [data]]
+  [& [data config]]
   (merge {::success? false}
-         (when data {::data data})))
+         (when data {::data data})
+         config))
 
 (s/fdef failure
   :args ::failure-args

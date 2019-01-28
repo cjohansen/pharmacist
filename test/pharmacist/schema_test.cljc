@@ -1,5 +1,6 @@
 (ns pharmacist.schema-test
-  (:require [pharmacist.schema :as sut]
+  (:require [pharmacist.data-source :as data-source]
+            [pharmacist.schema :as sut]
             #?(:clj [clojure.test :refer [deftest testing is]]
                :cljs [cljs.test :refer [deftest testing is]])
             #?(:clj [clojure.spec.alpha :as s]
@@ -142,6 +143,14 @@
                        {:person/friends [{:person/name "Miss Piggy"}]}
                        :person/entity))))
 
+  (testing "Maps contents of sequences with un-namespaced key"
+    (is (= {:friends [{:name "Miss Piggy"}]}
+           (sut/coerce {:name {::sut/spec string?}
+                        :friends {::sut/spec (s/coll-of :person)}
+                        :person {::sut/spec (s/keys :opt-un [::name ::friends])}}
+                       {:friends [{:name "Miss Piggy"}]}
+                       :person))))
+
   (testing "Coerces values"
     (is (= {:person/name :kermit
             :person/friends [{:person/name :piggy}]}
@@ -156,7 +165,7 @@
 (deftest defschema-coerce-data-test
   (testing "Leaves data untouched if no schema is defined"
     (is (= {:id 42}
-           (sut/coerce-data :spotify/playlist {:id 42}))))
+           (sut/coerce-data {::data-source/id :spotify/playlist} {:id 42}))))
 
   (testing "Coerces data with provided schema"
     (sut/defschema :test/muppet :muppet/entity
@@ -164,7 +173,7 @@
                     ::sut/source :name}
       :muppet/entity {::sut/spec (s/keys :req [:muppet/name])})
     (is (= {:muppet/name "Animal"}
-           (sut/coerce-data :test/muppet {:name "Animal"})))))
+           (sut/coerce-data {::data-source/id :test/muppet} {:name "Animal"})))))
 
 (deftest datascript-schema-test
   (testing "Exports datascript schema"

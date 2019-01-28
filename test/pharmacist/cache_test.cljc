@@ -4,7 +4,7 @@
             #?(:clj [clojure.test :refer [deftest testing is]]
                :cljs [cljs.test :refer [deftest testing is]])))
 
-(defmethod data-source/cache-key :custom [_ params]
+(defmethod data-source/cache-key :custom [{::data-source/keys [params]}]
   [:customz (:id params)])
 
 (deftest cache-key-test
@@ -34,18 +34,22 @@
 (deftest cache-get-put-test
   (testing "Retrieves item put in cache"
     (let [cache (atom {})]
-      (sut/cache-put cache [:source1] {::data-source/params {:id "1"}} {:value "To cache"})
+      (sut/cache-put cache [:source1] {::data-source/id :data-source-1
+                                       ::data-source/params {:id "1"}} {:value "To cache"})
       (is (= [{:value "To cache"}] (vals @cache)))
 
       (is (= {:value "To cache"}
-             (sut/cache-get cache [:source1] {::data-source/params {:id "1"}}))))))
+             (sut/cache-get cache [:source1] {::data-source/id :data-source-1
+                                              ::data-source/params {:id "1"}}))))))
 
 (deftest atom-map-cache-test
   (testing "Wraps cache in getter and setter"
     (let [cache (atom {})
           {:keys [cache-get cache-put]} (sut/atom-map cache)]
-      (cache-put [:source1] {::data-source/params {:id "1"}} {:value "To cache"})
+      (cache-put [:source1] {::data-source/id :data-source-1
+                             ::data-source/params {:id "1"}} {:value "To cache"})
       (is (= [{:value "To cache"}] (vals @cache)))
 
       (is (= {:value "To cache"}
-             (cache-get [:source1] {::data-source/params {:id "1"}}))))))
+             (cache-get [:source1] {::data-source/id :data-source-1
+                                    ::data-source/params {:id "1"}}))))))
