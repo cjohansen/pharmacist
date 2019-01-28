@@ -2,12 +2,12 @@
 
 Pharmacist is an "inversion of control" _library_ for data access: given
 multiple sources of data, it finds the fastest way to fetch them all, optionally
-retries failing fetches, handles errors in unified way, and optionally
-validates, transforms, and coerces data on the way back. Pharmacist helps you
-isolate the mechanics of fetching data, and allows your data processing
-functions to reach their full potential as pure consumers of Clojure data, no
-longer mired in imperative HTTP mechanics, global data structures, tedious error
-handling and retries, or mapping.
+caches results, retries failing fetches, handles errors in unified way, and
+optionally validates, transforms, and coerces data on the way back. Pharmacist
+helps you isolate the mechanics of fetching data, and allows your data
+processing functions to reach their full potential as pure consumers of Clojure
+data, no longer mired in imperative HTTP mechanics, global data structures,
+tedious error handling and retries, or mapping.
 
 Pharmacist helps you:
 
@@ -23,9 +23,9 @@ Pharmacist helps you:
 - Generate Datascript schema for fetched data
 - Consume data as it becomes available, or wait for the entire dataset
 
-Pharmacist coordinates data fetches, it does not actually implement fetching.
-Thus, it can fetch anything for you by coordinating your functions - it can work
-with both synchronous and asynchronous sources. Some relevant examples include:
+Pharmacist coordinates data fetches, it does not actually implement fetching. It
+can fetch anything for you by coordinating your functions - it can work with
+both synchronous and asynchronous sources. Some relevant examples include:
 
 * Data from the network
 * Data from disk
@@ -115,30 +115,33 @@ its resulting data, and pass it as the `:token` parameter to `::playlists`. If
 there had been no such dependency, Pharmacist would've retrieved both items in
 parallel.
 
-To fetch data, pass the prescription to `pharmacist.prescription/fill`:
+To fetch data, pass the prescription to `pharmacist.prescription/fill`, and then
+`pharmacist.prescription/select` the desired keys:
 
 ```clj
 (require '[pharmacist.prescription :as p]
          '[pharmacist.result :as result]
          '[clojure.core.async :refer [go <!]])
 
-(let [ch (p/fill prescription)]
+(let [ch (p/select (p/fill prescription) [::playlists])]
   (go-loop []
     (when-let [item (<! ch)]
       (prn (::result/path item) (::result/success? item) (::result/data item))
       (recur))))
 ```
 
-As you can see, `fill` returns a `core.async` channel that receives a message
-every time a single data source is realized. If you'd rather get everything in
-one go, you can use `collect`:
+`fill` returns a lazy collection of your data. You may `select` from it multiple
+times, but it will always give you the same data back. `select` returns a
+`core.async` channel that receives a message every time a single data source is
+attempted fetched. If you'd rather get everything in one go, you can use
+`collect`:
 
 ```clj
 (require '[pharmacist.prescription :as p]
          '[clojure.core.async :refer [go <!]])
 
 (go
-  (let [res (p/collect (p/fill prescription))]
+  (let [res (p/collect (p/select (p/fill prescription) [::playlists]))]
     (<! res)))
 ```
 
@@ -169,9 +172,10 @@ input parameters from a number of sources:
 - In a single page application: Path/query parameters from the current page URL
 - Runtime configuration options
 - Environment variables
+- Any number of other sources
 
-And any number of other sources. These can be provided to `fill` as initially
-resolved data sources. Here's the updated prescription:
+These can be provided to `fill` as initially resolved data sources. Here's the
+updated prescription:
 
 ```clj
 ;; Now with externalized configuration
@@ -193,8 +197,10 @@ And this is how you fill it with runtime configuration:
 
 (def env (System/getenv))
 
-(let [ch (p/fill prescription {:params {:config {:spotify-api-user (get env "SPOTIFY_USER")
-                                                 :spotify-api-password (get env "SPOTIFY_PASS")}}})]
+(let [ch (-> prescription
+             (p/fill {:params {:config {:spotify-api-user (get env "SPOTIFY_USER")
+                                        :spotify-api-password (get env "SPOTIFY_PASS")}}})
+             (p/select [::playlists]))]
   (go-loop []
     (when-let [item (<! ch)]
       (prn (::result/path item) (::result/success? item) (::result/data item))
@@ -203,9 +209,7 @@ And this is how you fill it with runtime configuration:
 
 There are no magical or conventional names here. Any key inside the map passed
 to `:params` will be available as a dependency in your prescription, and you
-access information from in just like other data sources. If you provide a
-parameter whose name is the same as a data source in your prescription,
-Pharmacist will throw an exception.
+access information from in just like other data sources.
 
 If all of a source's params are already neatly available as a map from another
 resource, declare the full map as a dependency:
@@ -236,7 +240,7 @@ prescription:
 
 With this addition, the token will be retried 3 times before causing an error -
 _if the result can be retried_, a decision made by the fetch implementation. You
-will still be notified via the channel returned from `fill` of failed requests
+will still be notified via the channel returned from `select` of failed requests
 that are being retried, the message will look like:
 
 ```clj
@@ -246,7 +250,7 @@ that are being retried, the message will look like:
  ::result/completed? false}
 ```
 
-`::result/completed? false` means it is going to be retried.
+`::result/completed? false` means the source is going to be retried.
 
 Some errors won't go away no matter how many times you retry. The result
 returned from the data source can inform Pharmacist on whether or not it is
@@ -269,10 +273,11 @@ When `::result/retryable?` is `false`, Pharmacist will not retry the fetch, even
 if the maximum number of retries is not exhausted. If `::result/retryable?` is
 not set, its default value is `true`.
 
-### Nested retries
+### Retries with refreshed dependencies
 
-Sometimes it is not worth retrying a fetch without refreshing some of its
-dependencies. To continue the example of the authentication token, a 403
+If you are using [caching](#caching), it might not be worth retrying a fetch
+with the same (possibly stale) set of dependencies - you might need to refresh
+some or all of them. To continue the example of the authentication token, a 403
 response from a service could be worth retrying, but only with a fresh token.
 
 Given the following prescription:
@@ -290,11 +295,11 @@ The playlist resource can indicate that it might be worth a retry with a new
 token the following way:
 
 ```clj
-(defmethod data-source/fetch :spotify/playlist [prescription]
+(defmethod data-source/fetch :spotify/playlist [{::data-source/keys [params]}]
   (let [ch (chan)]
     (http/get "https://api.spotify.com/playlists"
               {:async? true
-               :oauth-token (-> prescription ::data-source/params :token)}
+               :oauth-token (:token params)}
               #(put! ch (result/success (:body %)))
               #(put! ch (result/failure {:error "Failed to fetch playlists"}
                                         (when (= 403 (:status %))
@@ -304,7 +309,7 @@ token the following way:
 ```
 
 Pharmacist will know that the `:token` parameter came from the `::auth` source,
-retry it without caching, and then retry the playlist.
+re-fetch it without caching, and then retry the playlist with a fresh token.
 
 ## Caching
 
@@ -334,8 +339,8 @@ You pass these functions to `fill`:
          '[pharmacist.data-source :as data-source]
          '[pharmacist.prescription :as prescription])
 
-(defn cache-key [prescription]
-  [(::data-source/id params) (::data-source/params params)])
+(defn cache-key [{::data-source/keys [id params]}]
+  [id params])
 
 (defn cache-get [cache path prescription]
   (get @cache (cache-key prescription)))
@@ -354,10 +359,10 @@ You pass these functions to `fill`:
 ### Cache keys
 
 As demonstrated above, you can generate whatever cache keys you want, but for
-the vast majority of cases, the `::data-source/id` of the prescription and the
-provided parameters will uniquely address the content fetched by a prescription.
-For this purpose, Pharmacist provides `pharmacist.cache/cache-key`, which takes
-a prescription and returns a key:
+the vast majority of cases, the `::data-source/id` of the prescription and some
+or all of the provided parameters will uniquely address the content fetched by a
+prescription. For this purpose, Pharmacist provides
+`pharmacist.cache/cache-key`, which takes a prescription and returns a key:
 
 ```
 (def prescription
@@ -375,8 +380,55 @@ for your data source:
 ```clj
 (require '[pharmacist.data-source :as data-source])
 
-(defmethod data-source/cache-key ::my-data-source [prescription]
-  [:my-data-source (get-in prescription [::data-source/params :some-dep :id])])
+(defmethod data-source/cache-key ::my-data-source [{::data-source/keys [params]}]
+  [:my-data-source (get-in params [:some-dep :id])])
+```
+
+### Cache keys and dependencies
+
+Before a prescription can be looked up in the cache, all of its parameters must
+be fully resolved - e.g. there may not be any pending dependencies. This means
+that if you have a playlist data source like above, that depends on a token
+resource, then Pharmacist is unable to check the cache for a playlist until it's
+fetched a token, which is a little backwards. If the playlist is already cached
+and you don't need the token for anything else, there is no need to fetch the
+token at all.
+
+Pharmacist solves this problem with `pharmacist.data-source/cache-params`,
+another multi-method that returns the parameter keys required to build the cache
+key:
+
+```clj
+(defmethod data-source/cache-params :spotify/playlists [prescription]
+  [:id])
+```
+
+Now Pharmacist will know that only the `:id` is necessary to look for playlists
+in the cache, meaning that its cache key will be something like:
+
+```clj
+[:spotify/playlists {:id 42}]
+```
+
+If you now select for the `::playlists`, Pharmacist may skip the `::auth` data
+source entirely when the playlist in question exists in the cache:
+
+```clj
+(require '[pharmacist.data-source :as data-source]
+         '[pharmacist.prescription :as p])
+
+(def prescription
+  {::auth {::data-source/id :spotify/auth
+           ::data-source/params {:spotify-api-user "username"
+                                 :spotify-api-password "password"}}
+
+   ::playlists {::data-source/id :spotify/playlists
+                ::data-source/params {:token ^::data-source/dep [::auth :access_token]
+                                      :id ^::data-source/dep [::playlist-id]}}})
+
+(-> prescription
+    (p/fill {:params {::playlist-id 42}})
+    (p/select [::playlists]))
 ```
 
 ### Atoms with map caches
@@ -409,25 +461,28 @@ provide functions that dispatch on `path`, `::data-source/id`, or even
 individual results. Note that the caching functions are passed the full
 prescription, meaning that you could annotate it with information about how long
 different types of data should be cached etc. You can also set `:ttl`,
-`:expires-at` or similar on your sources, and use these in your cache get/put
-functions.
+`:expires-at` or similar on your sources and/or fetch results, and use these in
+your cache get/put functions.
 
-In the future, Pharmacist might provide tools for controlling caching on a
-per-result basis from data sources.
+When using `atom-map` cache, you can control which params are used for cache
+keys by implementing `pharmacist.data-source/cache-params`:
 
-When using `atom-map` cache, you can control the cache key for individual
-sources by implementing `pharmacist.data-source/cache-key`:
-
-```sh
+```clj
 (require '[pharmacist.data-source :as data-source])
 
-(defmethod data-source/cache-key :my-source [prescription params]
-  [:custom-path (:id params)])
+(defmethod data-source/cache-params :my-source [prescription]
+  [:id :country])
 ```
 
-**NB!** The `cache-key` method is passed both the `prescription` (which contains
-_all_ the parameters) and the `params` separately, because the latter may be a
-subset of all the parameters found in the prescription.
+If the type of data source and (some of) its parameters is not a good enough
+cache key, implement `pharmacist.data-source/cache-key` to provide a custom key:
+
+```clj
+(require '[pharmacist.data-source :as data-source])
+
+(defmethod data-source/cache-key :my-source [prescription]
+  [:custom-path (::my-app/cache-meta prescription)])
+```
 
 ## Mapping and coercion
 
