@@ -453,7 +453,7 @@ Combine this with the `core.cache` TTL cache to cache all data for one hour:
 
 (prescription/fill
  prescription
- (cache/atom-map (atom (cache/ttl-cache-factory {} :ttl (* 60 60 1000)))))
+ (pc/atom-map (atom (cache/ttl-cache-factory {} :ttl (* 60 60 1000)))))
 ```
 
 **NB!** This approach caches everything the same way. If you need more control,
