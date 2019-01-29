@@ -12,7 +12,7 @@
 (defscenario "Uses prescription path and params to build cache-key"
   (is (= (sut/cache-key {::data-source/id :source
                          ::data-source/params {:lol 2}})
-         [:source {:lol 2}])))
+         [:source {[:lol] 2}])))
 
 (defscenario "Calculates stable cache keys for same params"
   (is (= (sut/cache-key {::data-source/id :source

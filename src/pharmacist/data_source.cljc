@@ -23,7 +23,12 @@
 (defmulti cache-params (fn [prescription] (::id prescription)))
 
 (defmethod cache-params :default [{::keys [params]}]
-  (keys params))
+  (map #(vector %) (keys params)))
+
+(defmulti cache-deps (fn [prescription] (::id prescription)))
+
+(defmethod cache-deps :default [prescription]
+  (map first (cache-params prescription)))
 
 (defmulti cache-key
   "Given a prescription, return the cache key that uniquely addresses content
@@ -31,7 +36,9 @@
   with all parameters"
   (fn [prescription] (::id prescription)))
 
-(defmethod cache-key :default [{::keys [id params] :as prescription}]
-  (let [params (select-keys params (cache-params prescription))]
+(defmethod cache-key :default [{::keys [id] :as prescription}]
+  (let [params (->> (cache-params prescription)
+                    (map (fn [p] [p (get-in (::params prescription) p)]))
+                    (into {}))]
     (cond-> [id]
       (not (empty? params)) (conj params))))

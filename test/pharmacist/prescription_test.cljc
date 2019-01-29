@@ -732,7 +732,7 @@
                         ::result/data {:id 333}
                         ::result/cached? true}}])))))
 
-(defmethod data-source/cache-params :cache-1 [_]
+(defmethod data-source/cache-deps :cache-1 [_]
   #{:id})
 
 (defscenario-async "Does not fetch dependency when depending param is not part of cache key"
@@ -828,6 +828,39 @@
                       (cache/atom-map cache))
             [:data-1])))
       (is (= (::cache/cached-at (get @cache cache-key)) 1548695867223)))))
+
+(defmethod data-source/cache-params :cache-2 [_]
+  #{[:blob :id] [:blob :name]})
+
+(defscenario-async "Uses cache-params like cache-deps, and to shape cache key"
+  (go
+    (let [prescription {::data-source/id :cache-2
+                        ::data-source/params {:blob ^::data-source/dep [:data-3]}}
+          cache (atom {[:cache-2 {[:blob :id] 1337, [:blob :name] "Something"}]
+                       {::result/success? true
+                        ::result/data {:something "Cached"}}})]
+      (stub stub-1 [{:id 1337 :name "Something"}])
+      (is (= (<! (exhaust
+                  (sut/select
+                   (sut/fill {:data-1 prescription
+                              :data-3 {::data-source/id :stub-1}}
+                             (cache/atom-map cache))
+                   [:data-1])))
+             [{:path :data-3
+               :source {::data-source/id :stub-1
+                        ::data-source/deps #{}
+                        ::data-source/params {}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1337 :name "Something"}}}
+              {:path :data-1
+               :source {::data-source/id :cache-2
+                        ::data-source/params {:blob {:id 1337 :name "Something"}}
+                        ::data-source/deps #{:data-3}}
+               :result {::result/success? true
+                        ::result/attempts 0
+                        ::result/cached? true
+                        ::result/data {:something "Cached"}}}])))))
 
 (schema/defschema ::mapped-source :source1/entity
   :source1/some-attr {::schema/source :some-attr}

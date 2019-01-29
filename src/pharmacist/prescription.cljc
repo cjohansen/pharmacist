@@ -185,7 +185,7 @@
                     (or (nil? source) refreshing? (dep? params))))
          (map #(vector % (get resolved %)))
          (remove (fn [[k {::data-source/keys [params] :as source}]]
-                   (let [pks (data-source/cache-params source)]
+                   (let [pks (data-source/cache-deps source)]
                      (seq (filter #(dep? %) (vals (select-keys params pks)))))))
          (map (fn [[k source]]
                 (when-let [result (cache-get (->path k) source)]
