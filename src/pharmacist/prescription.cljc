@@ -78,13 +78,19 @@
 (defn- satisfied? [loaded [_ {::data-source/keys [deps] :as s}]]
   (every? #(get-in loaded [% ::result/success?]) deps))
 
+(defn- retryable? [{:keys [source result]}]
+  (or (::result/retrying? result)
+      (and (not (result/success? result))
+           (get result ::result/retryable? true)
+           (<= (::result/attempts result) (get source ::data-source/retries 0)))))
+
 (defn- prep-source [source]
   (dissoc source ::data-source/original-params ::result/attempts ::result/refresh ::data-source/refreshing?))
 
 (defn- prep-result [result source]
   (if (result/success? result)
     (update result ::result/data #(schema/coerce-data source %))
-    result))
+    (assoc result ::result/retrying? (retryable? {:source source :result result}))))
 
 (defn- fetch [{:keys [cache-put]} path source]
   (let [attempts (inc (get source ::result/attempts 0))]
@@ -105,11 +111,6 @@
   (->> sources
        (filter (partial satisfied? loaded))
        (map (fn [[path source]] (fetch opt path source)))))
-
-(defn- retryable? [{:keys [source result]}]
-  (and (not (result/success? result))
-       (get result ::result/retryable? true)
-       (<= (::result/attempts result) (get source ::data-source/retries 0))))
 
 (defn- params->deps [{::data-source/keys [original-params]} params]
   (mapcat (fn [param]

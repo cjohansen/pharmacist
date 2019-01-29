@@ -247,10 +247,10 @@ that are being retried, the message will look like:
 {::result/success? false
  ::result/data {:error "Network failure"}
  ::result/attempts 1
- ::result/completed? false}
+ ::result/retrying? true}
 ```
 
-`::result/completed? false` means the source is going to be retried.
+`::result/retrying? true` means the source is going to be retried.
 
 Some errors won't go away no matter how many times you retry. The result
 returned from the data source can inform Pharmacist on whether or not it is
@@ -890,9 +890,9 @@ on the prescription.
 The number of times this failure result will be retried. For successful results,
 this will always be `0`.
 
-#### `:pharmacist.result/completed?`
+#### `:pharmacist.result/retrying?`
 
-A boolean indicating whether Pharmacist is done trying to fetch from the source.
+A boolean indicating whether Pharmacist is going to retry the failed source.
 
 #### `:pharmacist.result/prescriptions`
 

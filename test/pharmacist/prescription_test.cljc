@@ -421,7 +421,8 @@
                       ::data-source/deps #{}}
              :result {::result/success? false
                       ::result/data {:message "Oops!"}
-                      ::result/attempts 1}}
+                      ::result/attempts 1
+                      ::result/retrying? true}}
             {:path :data-1
              :source {::data-source/id :stub-2
                       ::data-source/params {}
@@ -446,6 +447,7 @@
                       ::data-source/deps #{}}
              :result {::result/success? false
                       ::result/data {:message "Oops!"}
+                      ::result/retrying? false
                       ::result/attempts 1}}]))))
 
 (defscenario-async "Gives up after retrying n times"
@@ -464,13 +466,16 @@
                <!)
            [{::result/success? false
              ::result/data {:message "Oops!"}
-             ::result/attempts 1}
+             ::result/attempts 1
+             ::result/retrying? true}
             {::result/success? false
              ::result/data {:message "Oops!"}
-             ::result/attempts 2}
+             ::result/attempts 2
+             ::result/retrying? true}
             {::result/success? false
              ::result/data {:message "Oops!"}
-             ::result/attempts 3}
+             ::result/attempts 3
+             ::result/retrying? false}
             {::result/success? false
              ::result/attempts 0}]))))
 
@@ -485,7 +490,8 @@
       (is (= (<! (results (sut/select filled [:data-1])))
              [{::result/success? false
                ::result/data {:message "Oops!"}
-               ::result/attempts 2}])))))
+               ::result/attempts 2
+               ::result/retrying? false}])))))
 
 (defmethod data-source/fetch-sync :with-refresh [{::data-source/keys [params]}]
   (if (= 1 (:id params))
@@ -518,7 +524,8 @@
              :result {::result/attempts 1
                       ::result/data {:message "Oops!"}
                       ::result/refresh #{:id}
-                      ::result/success? false}}
+                      ::result/success? false
+                      ::result/retrying? true}}
             {:path :data-1
              :source {::data-source/deps #{}
                       ::data-source/id :stub-1
@@ -566,7 +573,8 @@
              :result {::result/success? false
                       ::result/attempts 1
                       ::result/data {:message "Oops!"}
-                      ::result/refresh #{::data-source/params}}}
+                      ::result/refresh #{::data-source/params}
+                      ::result/retrying? true}}
             {:path :data-1
              :source {::data-source/deps #{}
                       ::data-source/id :stub-1
@@ -684,7 +692,8 @@
                :result {::result/attempts 1
                         ::result/data {:message "Oops!"}
                         ::result/refresh #{:id}
-                        ::result/success? false}}
+                        ::result/success? false
+                        ::result/retrying? true}}
               {:path :data-1
                :source {::data-source/deps #{}
                         ::data-source/id :stub-1
@@ -862,6 +871,41 @@
                         ::result/cached? true
                         ::result/data {:something "Cached"}}}])))))
 
+
+
+#_(defscenario-async "Fetches only the cache deps and looks for cached data until loading all deps"
+  (go
+    (let [prescription {::data-source/id :cache-2
+                        ::data-source/params {:blob ^::data-source/dep [:data-3]
+                                              :dep ^::data-source/dep [:data-2 :id]}}
+          cache (atom {[:cache-2 {[:blob :id] 1337, [:blob :name] "Something"}]
+                       {::result/success? true
+                        ::result/data {:something "Cached"}}})]
+      (stub stub-1 [{:id 1337 :name "Something"}])
+      (is (= (<! (exhaust
+                  (sut/select
+                   (sut/fill {:data-1 prescription
+                              :data-2 {::data-source/id :source-1}
+                              :data-3 {::data-source/id :source-1
+                                       ::data-source/params {:id 42}}}
+                             (cache/atom-map cache))
+                   [:data-1])))
+             [{:path :data-3
+               :source {::data-source/id :source-1}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1337 :name "Something"}}}
+              {:path :data-1
+               :source {::data-source/id :cache-1
+                        ::data-source/params {:blob {:id 1337 :name "Something"}
+                                              :dep [:data-2 :id]}}
+               :result {::result/success? true
+                        ::result/attempts 0
+                        ::result/cached? true
+                        ::result/data {:something "Cached"}}}])))))
+
+
+
 (schema/defschema ::mapped-source :source1/entity
   :source1/some-attr {::schema/source :some-attr}
   :source1/entity {::schema/spec (s/keys :opt [:source1/some-attr])})
@@ -942,7 +986,3 @@
                exhaust
                <!)
            []))))
-
-;; TODO
-;; - ::result/completed?
-;; - cache-params -> [[:dep-1 :id] [:dep-2 :lol]]
