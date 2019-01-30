@@ -234,7 +234,7 @@
                :source {::data-source/id :stub-1
                         ::data-source/params {:id 1}}}]))
       (is (= (-> @stub-1 :calls count) 1)))))
-0
+
 (defscenario-async "Fetches immediate dependency of selected data sources"
   (go
     (is (= (-> {:data-1 {::data-source/id :source-1
@@ -255,8 +255,7 @@
 
 (defscenario-async "Fetches all transitive dependencies of selected data sources"
   (go
-    (is (=
- (-> {:data-1 {::data-source/id :source-1
+    (is (= (-> {:data-1 {::data-source/id :source-1
                          ::data-source/params {:id 1
                                                :dep ^::data-source/dep [:data-2 :dep]}}
                 :data-2 {::data-source/id :source-1
@@ -268,15 +267,15 @@
                (sut/select [:data-1])
                results
                <!)
- [{::result/success? true
-   ::result/attempts 1
-   ::result/data {:id 3}}
-  {::result/success? true
-   ::result/attempts 1
-   ::result/data {:id 2 :dep 3}}
-  {::result/success? true
-   ::result/attempts 1 ::result/data {:id 1 :dep 3}}]))))
-1
+           [{::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 3}}
+            {::result/success? true
+             ::result/attempts 1
+             ::result/data {:id 2 :dep 3}}
+            {::result/success? true
+             ::result/attempts 1 ::result/data {:id 1 :dep 3}}]))))
+
 (defscenario-async "Fetches sources with initial params"
   (go
     (is (= (-> {:data-1 {::data-source/id :source-1
@@ -654,7 +653,8 @@
                   [:data-1]))
              {:path :data-1
               :source {::data-source/id :source-1
-                       ::data-source/params {}}
+                       ::data-source/params {}
+                       ::data-source/deps #{}}
               :result {::result/success? true
                        ::result/attempts 0
                        ::result/data {:id 333}
@@ -762,7 +762,8 @@
                    [:data-1])))
              [{:path :data-1
                :source {::data-source/id :cache-1
-                        ::data-source/params {:id 1 :dep [:data-2 :id]}}
+                        ::data-source/params {:id 1 :dep [:data-2 :id]}
+                        ::data-source/deps #{:data-2}}
                :result {::result/success? true
                         ::result/attempts 0
                         ::result/cached? true
@@ -871,9 +872,144 @@
                         ::result/cached? true
                         ::result/data {:something "Cached"}}}])))))
 
+(defscenario-async "Fetches only the cache deps and looks for cached data until loading all deps"
+  (go
+    (let [prescription {::data-source/id :cache-2
+                        ::data-source/params {:blob ^::data-source/dep [:data-3]
+                                              :dep ^::data-source/dep [:data-2 :id]}}
+          cache (atom {[:cache-2 {[:blob :id] 1337, [:blob :name] "Something"}]
+                       {::result/success? true
+                        ::result/data {:something "Cached"}}})]
+      (stub stub-1 [{:id 1337 :name "Something"}])
+      (is (= (<! (exhaust
+                  (sut/select
+                   (sut/fill {:data-1 prescription
+                              :data-2 {::data-source/id :source-1}
+                              :data-3 {::data-source/id :stub-1
+                                       ::data-source/params {:id 42}}}
+                             (cache/atom-map cache))
+                   [:data-1])))
+             [{:path :data-3
+               :source {::data-source/id :stub-1
+                        ::data-source/params {:id 42}
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1337 :name "Something"}}}
+              {:path :data-1
+               :source {::data-source/id :cache-2
+                        ::data-source/params {:blob {:id 1337 :name "Something"}
+                                              :dep [:data-2 :id]}
+                        ::data-source/deps #{:data-2 :data-3}}
+               :result {::result/success? true
+                        ::result/attempts 0
+                        ::result/cached? true
+                        ::result/data {:something "Cached"}}}])))))
 
+(defscenario-async "Goes deep before it goes wide"
+  (go
+    (let [prescription {::data-source/id :cache-2
+                        ::data-source/params {:blob ^::data-source/dep [:data-3]
+                                              :dep ^::data-source/dep [:data-2 :id]}}
+          cache (atom {[:cache-2 {[:blob :id] 1337, [:blob :name] "New source"}]
+                       {::result/success? true
+                        ::result/data {:something "Cached"}}})]
+      (stub stub-1 [{:id 1337 :name "Something"}])
+      (is (= (<! (exhaust
+                  (sut/select
+                   (sut/fill {:data-1 prescription
+                              :data-2 {::data-source/id :source-1}
+                              :data-3 {::data-source/id :source-1
+                                       ::data-source/params {:id ^::data-source/dep [:data-4 :id]
+                                                             :name "New source"}}
+                              :data-4 {::data-source/id :stub-1
+                                       ::data-source/params {:id 42}}}
+                             (cache/atom-map cache))
+                   [:data-1])))
+             [{:path :data-4
+               :source {::data-source/id :stub-1
+                        ::data-source/params {:id 42}
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1337 :name "Something"}}}
+              {:path :data-3
+               :source {::data-source/id :source-1
+                        ::data-source/params {:id 1337 :name "New source"}
+                        ::data-source/deps #{:data-4}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1337 :name "New source"}}}
+              {:path :data-1
+               :source {::data-source/id :cache-2
+                        ::data-source/params {:blob {:id 1337 :name "New source"}
+                                              :dep [:data-2 :id]}
+                        ::data-source/deps #{:data-2 :data-3}}
+               :result {::result/success? true
+                        ::result/attempts 0
+                        ::result/cached? true
+                        ::result/data {:something "Cached"}}}])))))
 
-#_(defscenario-async "Fetches only the cache deps and looks for cached data until loading all deps"
+(defmethod data-source/cache-params :cache-3 [_]
+  #{[:id]})
+
+(defmethod data-source/fetch-sync :cache-3 [{::data-source/keys [params]}]
+  (result/success params))
+
+(defscenario-async "Goes deep and resolves all dependencies to fetch uncached item"
+  (go
+    (let [prescription {::data-source/id :cache-2
+                        ::data-source/params {:blob ^::data-source/dep [:data-3]
+                                              :dep ^::data-source/dep [:data-2 :id]}}
+          cache (atom {[:cache-2 {[:blob :id] 1337, [:blob :name] "Deep deps"}]
+                       {::result/success? true
+                        ::result/data {:something "Cached"}}})]
+      (stub stub-1 [{:id 1337 :name "Something"}])
+      (is (= (<! (exhaust
+                  (sut/select
+                   (sut/fill {:data-1 prescription
+                              :data-2 {::data-source/id :source-1}
+                              :data-3 {::data-source/id :cache-3
+                                       ::data-source/params {:id ^::data-source/dep [:data-4 :id]
+                                                             :name ^::data-source/dep [:data-5 :name]}}
+                              :data-4 {::data-source/id :stub-1
+                                       ::data-source/params {:id 42}}
+                              :data-5 {::data-source/id :source-1
+                                       ::data-source/params {:name "Deep deps"}}}
+                             (cache/atom-map cache))
+                   [:data-1])))
+             [{:path :data-4
+               :source {::data-source/id :stub-1
+                        ::data-source/params {:id 42}
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1337 :name "Something"}}}
+              {:path :data-5
+               :source {::data-source/id :source-1
+                        ::data-source/params {:name "Deep deps"}
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:name "Deep deps"}}}
+              {:path :data-3
+               :source {::data-source/id :cache-3
+                        ::data-source/params {:id 1337 :name "Deep deps"}
+                        ::data-source/deps #{:data-4 :data-5}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1337 :name "Deep deps"}}}
+              {:path :data-1
+               :source {::data-source/id :cache-2
+                        ::data-source/params {:blob {:id 1337 :name "Deep deps"}
+                                              :dep [:data-2 :id]}
+                        ::data-source/deps #{:data-2 :data-3}}
+               :result {::result/success? true
+                        ::result/attempts 0
+                        ::result/cached? true
+                        ::result/data {:something "Cached"}}}])))))
+
+(defscenario-async "Handles full params deps in cache resolution"
   (go
     (let [prescription {::data-source/id :cache-2
                         ::data-source/params {:blob ^::data-source/dep [:data-3]
@@ -887,24 +1023,34 @@
                    (sut/fill {:data-1 prescription
                               :data-2 {::data-source/id :source-1}
                               :data-3 {::data-source/id :source-1
+                                       ::data-source/params ^::data-source/dep [:data-4]}
+                              :data-4 {::data-source/id :stub-1
                                        ::data-source/params {:id 42}}}
                              (cache/atom-map cache))
                    [:data-1])))
-             [{:path :data-3
-               :source {::data-source/id :source-1}
+             [{:path :data-4
+               :source {::data-source/id :stub-1
+                        ::data-source/params {:id 42}
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1337 :name "Something"}}}
+              {:path :data-3
+               :source {::data-source/id :source-1
+                        ::data-source/params {:id 1337 :name "Something"}
+                        ::data-source/deps #{:data-4}}
                :result {::result/success? true
                         ::result/attempts 1
                         ::result/data {:id 1337 :name "Something"}}}
               {:path :data-1
-               :source {::data-source/id :cache-1
+               :source {::data-source/id :cache-2
                         ::data-source/params {:blob {:id 1337 :name "Something"}
-                                              :dep [:data-2 :id]}}
+                                              :dep [:data-2 :id]}
+                        ::data-source/deps #{:data-2 :data-3}}
                :result {::result/success? true
                         ::result/attempts 0
                         ::result/cached? true
                         ::result/data {:something "Cached"}}}])))))
-
-
 
 (schema/defschema ::mapped-source :source1/entity
   :source1/some-attr {::schema/source :some-attr}
@@ -943,9 +1089,9 @@
                         :data2 {::data-source/id ::echo
                                 ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}
           filled (sut/fill prescription)]
-      (-> filled (sut/select [:data2] sut/collect <!))
+      (-> filled (sut/select [:data2]) sut/collect <!)
       (is (= (-> filled
-                 (sut/select [:data2])
+                 (sut/select [:data2 :data])
                  sut/collect
                  <!
                  ::result/data)

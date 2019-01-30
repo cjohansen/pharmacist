@@ -44,7 +44,7 @@
          (rest ks))
         (set res)))))
 
-(defn resolve-deps [prescription & [ks]]
+(defn- resolve-deps-with [prescription ks k f]
   (loop [res {}
          [key & ks] (or ks (keys prescription))]
     (cond
@@ -54,11 +54,24 @@
 
       (contains? prescription key)
       (let [source (get prescription key)
-            deps (resolve-deps-1 (::data-source/params source) key)]
-        (recur (assoc res key (assoc source ::data-source/deps deps))
+            deps (f source key)]
+        (recur (assoc res key (assoc source k deps))
                (set (concat ks deps))))
 
       :default (recur res ks))))
+
+(defn resolve-deps [prescription & [ks]]
+  (resolve-deps-with prescription ks ::data-source/deps #(resolve-deps-1 (::data-source/params %1) %2)))
+
+(defn- cache-deps [{::data-source/keys [params] :as source}]
+  (->> (data-source/cache-deps source)
+       (select-keys params)
+       vals
+       (filter #(dep? %))
+       (map first)))
+
+(defn resolve-cache-deps [prescription ks]
+  (resolve-deps-with prescription ks ::data-source/cache-deps (fn [source _] (cache-deps source))))
 
 (defn- dep-path [[source & path]]
   (concat [source] [::result/data] path))
@@ -76,7 +89,8 @@
                 (mapvals #(if (dep? %) (get-in results (dep-path %) %) %) params))))))
 
 (defn- satisfied? [loaded [_ {::data-source/keys [deps] :as s}]]
-  (every? #(get-in loaded [% ::result/success?]) deps))
+  (and (not (nil? deps))
+       (every? #(get-in loaded [% ::result/success?]) deps)))
 
 (defn- retryable? [{:keys [source result]}]
   (or (::result/retrying? result)
@@ -85,7 +99,10 @@
            (<= (::result/attempts result) (get source ::data-source/retries 0)))))
 
 (defn- prep-source [source]
-  (dissoc source ::data-source/original-params ::result/attempts ::result/refresh ::data-source/refreshing?))
+  (cond-> source
+    (empty? (::data-source/deps source)) (assoc ::data-source/deps (resolve-deps-1 (::data-source/original-params source) nil))
+    :always (dissoc ::data-source/original-params ::data-source/refreshing? ::data-source/cache-deps
+                    ::result/attempts ::result/refresh)))
 
 (defn- prep-result [result source]
   (if (result/success? result)
@@ -143,7 +160,7 @@
             (into {}))])))
 
 (defn- pending [loaded ks]
-  (remove (set (keys loaded)) ks))
+  (into #{} (remove (set (keys loaded)) ks)))
 
 (defn- eligible-nested [{:keys [walk-nested-prescriptions?]} results]
   (->> results
@@ -167,7 +184,7 @@
 (defn- update-prescription [prescription nested results retryable refresh]
   (->> (map (fn [{:keys [path source]}] [path source]) results)
        (into {})
-       (apply merge prescription nested retryable)
+       (apply merge prescription nested (mapvals #(dissoc % ::data-source/deps ::data-source/cache-deps) retryable))
        (restore-refreshes refresh)))
 
 (defn- update-results [results batch-results refresh]
@@ -185,9 +202,7 @@
          (remove #(let [{::data-source/keys [params refreshing?] :as source} (get resolved %)]
                     (or (nil? source) refreshing? (dep? params))))
          (map #(vector % (get resolved %)))
-         (remove (fn [[k {::data-source/keys [params] :as source}]]
-                   (let [pks (data-source/cache-deps source)]
-                     (seq (filter #(dep? %) (vals (select-keys params pks)))))))
+         (remove #(seq (cache-deps (second %))))
          (map (fn [[k source]]
                 (when-let [result (cache-get (->path k) source)]
                   {:path k
@@ -222,14 +237,48 @@
        (map first)
        (into #{})))
 
+(defn- expand-cache-deps [loaded prescription ks]
+  (when (seq (remove ::data-source/cache-deps (vals (select-keys prescription ks))))
+    {:loaded loaded
+     :prescription (merge prescription (resolve-cache-deps prescription ks))
+     :ks ks}))
+
+(defn- keys-by [loaded prescription ks k & [target-ks]]
+  (->> (select-keys prescription ks)
+       vals
+       (mapcat k)
+       (into (or target-ks ks))
+       (pending loaded)))
+
+(defn- expand-keys [loaded prescription ks new-ks]
+  (when (< (count ks) (count new-ks))
+    {:loaded loaded :prescription prescription :ks new-ks}))
+
+(defn- expand-cache-selection [loaded prescription ks]
+  (expand-keys loaded prescription ks (keys-by loaded prescription ks ::data-source/cache-deps)))
+
+(defn- expand-cache-deps-selection [loaded prescription ks]
+  (let [dep-ks (->> (select-keys prescription ks)
+                    vals
+                    (mapcat ::data-source/cache-deps))]
+    (expand-keys loaded prescription ks (keys-by loaded prescription dep-ks ::data-source/deps ks))))
+
+(defn- expand-deps [loaded prescription ks]
+  (when (seq (remove ::data-source/deps (vals (select-keys prescription ks))))
+    {:loaded loaded
+     :prescription (merge prescription (resolve-deps prescription ks))
+     :ks ks}))
+
+(defn- expand-deps-selection [loaded prescription ks]
+  (expand-keys loaded prescription ks (keys-by loaded prescription ks ::data-source/deps)))
+
 (defn- expand-selection [loaded prescription ks]
-  (let [resolved (resolve-deps prescription (pending loaded ks))
-        new-ks (pending loaded (keys resolved))]
-    (when (or (seq (remove (deps-summary prescription) (deps-summary resolved)))
-              (not= (into #{} ks) (into #{} new-ks)))
-      {:loaded loaded
-       :prescription (merge prescription resolved)
-       :ks new-ks})))
+  (let [pending-keys (pending loaded ks)]
+    (or (expand-cache-selection loaded prescription pending-keys)
+        (expand-cache-deps loaded prescription pending-keys)
+        (expand-cache-deps-selection loaded prescription pending-keys)
+        (expand-deps-selection loaded prescription pending-keys)
+        (expand-deps loaded prescription pending-keys))))
 
 (defn- fetch-sources [opt ch result loaded prescription ks]
   (a/<!!
@@ -255,8 +304,8 @@
                  ks ks]
             (let [prescription (mapvals #(provide-deps loaded %) prescription)]
               (if-let [res (or (try-cache opt ch result loaded prescription ks)
-                               (expand-selection loaded prescription ks)
-                               (fetch-sources opt ch result loaded prescription ks))]
+                               (fetch-sources opt ch result loaded prescription ks)
+                               (expand-selection loaded prescription ks))]
                 (recur (:loaded res) (:prescription res) (:ks res))
                 (let [resolved (resolve-deps prescription (pending loaded ks))]
                   (doseq [k (pending loaded (keys resolved))]
