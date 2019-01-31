@@ -167,6 +167,24 @@
 (defn- ensure-id [source]
   (assoc source ::data-source/id (data-source/id source)))
 
+(defn- coll-item [prescription {:keys [path source result]}]
+  (->> (::result/data result)
+       (map (fn [data]
+              {:path path
+               :source (-> prescription
+                           (get (::data-source/coll-of source))
+                           (dissoc ::data-source/original-params)
+                           (update ::data-source/params #(merge % data)))}))))
+
+(defn- eligible-nested [prescription results]
+  (->> results
+       (filter #(-> % :source ::data-source/coll-of))
+       (mapcat #(coll-item prescription %))
+       (map-indexed
+        (fn [idx {:keys [path source]}]
+          [(concat (->path path) [idx]) source]))
+       (into {})))
+
 (defn- restore-refreshes [refreshes prescription]
   (reduce
    (fn [prescription refresh]
@@ -176,10 +194,10 @@
    prescription
    refreshes))
 
-(defn- update-prescription [prescription results retryable refresh]
+(defn- update-prescription [prescription nested results retryable refresh]
   (->> (map (fn [{:keys [path source]}] [path source]) results)
        (into {})
-       (apply merge prescription (mapvals #(dissoc % ::data-source/deps ::data-source/cache-deps) retryable))
+       (apply merge prescription nested (mapvals #(dissoc % ::data-source/deps ::data-source/cache-deps) retryable))
        (restore-refreshes refresh)))
 
 (defn- update-results [results batch-results refresh]
@@ -209,11 +227,12 @@
 
 (defn- process-batch-results [opt loaded prescription ks results retryable]
   (when (or (seq results) (seq retryable))
-    (let [refresh (mapcat ::result/refresh (vals retryable))
+    (let [nested (eligible-nested prescription results)
+          refresh (mapcat ::result/refresh (vals retryable))
           loaded (update-results loaded results refresh)]
       {:loaded loaded
-       :prescription (update-prescription prescription results retryable refresh)
-       :ks (set (pending loaded (concat ks refresh)))})))
+       :prescription (update-prescription prescription nested results retryable refresh)
+       :ks (set (pending loaded (concat ks (keys nested) refresh)))})))
 
 (defn- try-cache [opt ch result loaded prescription ks]
   (let [results (load-cached opt prescription ks)]

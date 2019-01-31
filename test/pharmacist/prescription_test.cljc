@@ -1070,3 +1070,49 @@
                exhaust
                <!)
            []))))
+
+(defn get-facility-ids [{::data-source/keys [params]}]
+  (result/success (:ids params)))
+
+(defscenario-async "Loads nested sources from collection"
+  (go
+    (is (= (into #{}
+                 (-> {:facility {::data-source/fn #'echo-params
+                                 ::data-source/params {:some "facility"}}
+
+                      :facilities {::data-source/coll-of :facility
+                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/params {:ids [{:facility-id 1}
+                                                               {:facility-id 2}]}}}
+                     sut/fill
+                     (sut/select [:facilities])
+                     exhaust
+                     <!))
+           #{{:path :facilities
+               :source {::data-source/id ::get-facility-ids
+                        ::data-source/params {:ids [{:facility-id 1}
+                                                    {:facility-id 2}]}
+                        ::data-source/coll-of :facility
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/data [{:facility-id 1}
+                                       {:facility-id 2}]
+                        ::result/attempts 1}}
+             {:path [:facilities 0]
+              :source {::data-source/id ::echo-params
+                       ::data-source/params {:some "facility"
+                                             :facility-id 1}
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/data {:some "facility"
+                                      :facility-id 1}
+                       ::result/attempts 1}}
+             {:path [:facilities 1]
+              :source {::data-source/id ::echo-params
+                       ::data-source/params {:some "facility"
+                                             :facility-id 2}
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/data {:some "facility"
+                                      :facility-id 2}
+                       ::result/attempts 1}}}))))
