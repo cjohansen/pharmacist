@@ -3,7 +3,8 @@
   (:require #?(:clj [clojure.core.async :as a]
                :cljs [cljs.core.async :as a])
             #?(:clj [clojure.spec.alpha :as s]
-               :cljs [cljs.spec.alpha :as s])))
+               :cljs [cljs.spec.alpha :as s])
+            [clojure.string :as str]))
 
 (s/def ::id keyword?)
 (s/def ::params (s/map-of any? any?))
@@ -14,25 +15,40 @@
 (s/def ::prescription (s/keys :req [::id]
                               :opt [::params ::retryable? ::retries ::dep ::nested-prescriptions]))
 
+(defn id [{::keys [id fn async-fn]}]
+  (or id
+      (when-let [f (or fn async-fn)]
+        (if-let [m (meta f)]
+          (keyword (str (:ns m)) (str(:name m)))
+          (let [name (some-> f str (str/replace #"_" "-"))]
+            (if-let [[_ ns n] (re-find #"(.*)\$(.*)@" name)]
+              (keyword ns n)
+              (keyword name)))))))
+
 (defmulti fetch-sync (fn [prescription] (::id prescription)))
 (defmulti fetch (fn [prescription] (::id prescription)))
 
 (defmethod fetch :default [prescription]
-  (a/go (fetch-sync prescription)))
+  (cond
+    (::async-fn prescription) ((::async-fn prescription) prescription)
+    (::fn prescription) (a/go ((::fn prescription) prescription))
+    :default (a/go (fetch-sync prescription))))
 
 (defmulti cache-params (fn [prescription] (::id prescription)))
 
-(defmethod cache-params :default [{::keys [params]}]
-  (if (vector? params)
-    [params]
-    (map #(vector %) (keys params))))
+(defmethod cache-params :default [{::keys [params cache-params]}]
+  (or cache-params
+      (if (vector? params)
+        [params]
+        (map #(vector %) (keys params)))))
 
 (defmulti cache-deps (fn [prescription] (::id prescription)))
 
 (defmethod cache-deps :default [prescription]
-  (->> (cache-params prescription)
-       (map first)
-       (into #{})))
+  (or (::cache-deps prescription)
+      (->> (cache-params prescription)
+           (map first)
+           (into #{}))))
 
 (defmulti cache-key
   "Given a prescription, return the cache key that uniquely addresses content
@@ -40,9 +56,9 @@
   with all parameters"
   (fn [prescription] (::id prescription)))
 
-(defmethod cache-key :default [{::keys [id] :as prescription}]
+(defmethod cache-key :default [prescription]
   (let [params (->> (cache-params prescription)
                     (map (fn [p] [p (get-in (::params prescription) p)]))
                     (into {}))]
-    (cond-> [id]
+    (cond-> [(id prescription)]
       (not (empty? params)) (conj params))))

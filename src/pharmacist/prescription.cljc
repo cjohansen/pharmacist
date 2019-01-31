@@ -3,7 +3,8 @@
             [pharmacist.result :as result]
             #?(:clj [clojure.core.async :as a]
                :cljs [cljs.core.async :as a])
-            [pharmacist.schema :as schema]))
+            [pharmacist.schema :as schema]
+            [clojure.string :as str]))
 
 (defn- mapvals [f m]
   (into {} (map (fn [[k v]] [k (f v)]) m)))
@@ -102,6 +103,7 @@
   (cond-> source
     (empty? (::data-source/deps source)) (assoc ::data-source/deps (resolve-deps-1 (::data-source/original-params source) nil))
     :always (dissoc ::data-source/original-params ::data-source/refreshing? ::data-source/cache-deps
+                    ::data-source/fn ::data-source/async-fn ::data-source/cache-params
                     ::result/attempts ::result/refresh)))
 
 (defn- prep-result [result source]
@@ -146,8 +148,8 @@
       (let [[val port] (a/alts! ports)]
         (if (nil? val)
           (recur (remove #(= % port) ports) res)
-          (let [clean (update val :source prep-source)]
-            (a/>! ch clean)
+          (do
+            (a/>! ch (update val :source prep-source))
             (when (not (retryable? val))
               (swap! result assoc (:path val) (:result val)))
             (recur (remove #(= % port) ports) (conj res val)))))
@@ -162,12 +164,16 @@
 (defn- pending [loaded ks]
   (into #{} (remove (set (keys loaded)) ks)))
 
+(defn- ensure-id [source]
+  (assoc source ::data-source/id (data-source/id source)))
+
 (defn- eligible-nested [{:keys [walk-nested-prescriptions?]} results]
   (->> results
        (mapcat (fn [{:keys [path result source]}]
                  (let [include (or (::data-source/nested-prescriptions source) #{})]
                    (->> result
                         ::result/prescriptions
+                        (map (fn [[k v]] [k (ensure-id v)]))
                         (filter #(or walk-nested-prescriptions? (include (::data-source/id (second %)))))
                         (map (fn [[k v]] [(concat (->path path) (->path k)) v]))))))
        (into {})))
@@ -206,7 +212,7 @@
          (map (fn [[k source]]
                 (when-let [result (cache-get (->path k) source)]
                   {:path k
-                   :source (prep-source source)
+                   :source source
                    :result (assoc result
                                   ::result/attempts 0
                                   ::result/cached? true)})))
@@ -226,7 +232,7 @@
     (a/<!!
      (a/go
        (doseq [res results]
-         (a/>! ch res)
+         (a/>! ch (update res :source prep-source))
          (swap! result assoc (:path res) (:result res)))
        (process-batch-results opt loaded prescription ks results nil)))))
 
@@ -291,12 +297,13 @@
        (process-batch-results opt loaded prescription ks results retryable)))))
 
 (defn fill [prescription & [opt]]
-  (let [result (atom (mapvals result/success (:params opt)))]
+  (let [result (atom (mapvals result/success (:params opt)))
+        prescription (mapvals ensure-id prescription)]
     (fn [ks]
       (let [ch (a/chan)]
         (a/go
           (doseq [[path result] (select-keys @result ks)]
-            (a/>! ch {:source (prescription path)
+            (a/>! ch {:source (prep-source (prescription path))
                       :path path
                       :result result}))
           (loop [loaded @result

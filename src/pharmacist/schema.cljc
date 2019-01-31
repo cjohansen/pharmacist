@@ -84,7 +84,9 @@
 (defmulti coerce-data (fn [source data] (:pharmacist.data-source/id source)))
 
 (defmethod coerce-data :default [source data]
-  data)
+  (if-let [schema (:pharmacist.data-source/schema source)]
+    (coerce schema data ::entity)
+    data))
 
 (defn defschema [data-source-id root-spec & {:as schema}]
   (defmethod coerce-data data-source-id [_ data]
