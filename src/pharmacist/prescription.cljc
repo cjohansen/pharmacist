@@ -341,6 +341,13 @@
        (map second)
        (reduce #(and %1 %2) true)))
 
+(defn merge-results [results]
+  (->> results
+       (map #(update % :path ->path))
+       (sort-by #(-> % :path count))
+       (reduce (fn [res {:keys [path result]}]
+                 (assoc-in res path (::result/data result))) {})))
+
 (defn collect [port]
   (a/go-loop [res {}
               sources []]

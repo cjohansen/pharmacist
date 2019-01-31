@@ -1116,3 +1116,79 @@
                        ::result/data {:some "facility"
                                       :facility-id 2}
                        ::result/attempts 1}}}))))
+
+(defscenario "Merges data from results"
+  (is (= (sut/merge-results [{:path :id
+                              :result {::result/data 1}}
+                             {:path :name
+                              :result {::result/data "Someone"}}
+                             {:path :age
+                              :result {::result/data 12}}])
+         {:id 1
+          :name "Someone"
+          :age 12})))
+
+(defscenario "Merges data in order of appearance"
+  (is (= (sut/merge-results [{:path :id
+                              :result {::result/data 1}}
+                             {:path :name
+                              :result {::result/data "Someone"}}
+                             ;; Refresh on retry can result in having two events
+                             ;; for the same path with different data - if so,
+                             ;; use the latest one
+                             {:path :name
+                              :result {::result/data "Mr Other"}}
+                             {:path :age
+                              :result {::result/data 12}}])
+         {:id 1
+          :name "Mr Other"
+          :age 12})))
+
+(defscenario "Merges nested sources into previously created maps and vectors"
+  (is (= (sut/merge-results [{:path :id
+                              :result {::result/data 666}}
+                             {:path :facilities
+                              :result {::result/data [{:facility-id 1} {:facility-id 2}]}}
+                             {:path [:facilities 0]
+                              :result {::result/data {:id 1 :name "First one"}}}
+                             {:path [:facilities 1]
+                              :result {::result/data {:id 2 :name "Second one"}}}])
+         {:id 666
+          :facilities [{:id 1 :name "First one"}
+                       {:id 2 :name "Second one"}]})))
+
+(defscenario "Merges nested sources recursively when levels are out of order"
+  (is (= (sut/merge-results [{:path :id
+                              :result {::result/data 666}}
+                             {:path :facilities
+                              :result {::result/data [{:facility-id 1} {:facility-id 2}]}}
+                             {:path [:facilities 0 :load]
+                              :result {::result/data :high}}
+                             {:path [:facilities 1 :load]
+                              :result {::result/data :medium}}
+                             {:path [:facilities 0]
+                              :result {::result/data {:id 1 :name "First one"}}}
+                             {:path [:facilities 1]
+                              :result {::result/data {:id 2 :name "Second one"}}}])
+         {:id 666
+          :facilities [{:id 1 :name "First one" :load :high}
+                       {:id 2 :name "Second one" :load :medium}]})))
+
+(defscenario "Uses latest value when merging out of order nested sources"
+  (is (= (sut/merge-results [{:path :id
+                              :result {::result/data 666}}
+                             {:path :facilities
+                              :result {::result/data [{:facility-id 1} {:facility-id 2}]}}
+                             {:path [:facilities 0 :load]
+                              :result {::result/data :high}}
+                             {:path [:facilities 1 :load]
+                              :result {::result/data :medium}}
+                             {:path [:facilities 0]
+                              :result {::result/data {:id 1 :name "First one"}}}
+                             {:path [:facilities 1 :load]
+                              :result {::result/data :low}}
+                             {:path [:facilities 1]
+                              :result {::result/data {:id 2 :name "Second one"}}}])
+         {:id 666
+          :facilities [{:id 1 :name "First one" :load :high}
+                       {:id 2 :name "Second one" :load :low}]})))
