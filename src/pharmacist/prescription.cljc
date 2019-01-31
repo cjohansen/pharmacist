@@ -167,23 +167,35 @@
 (defn- ensure-id [source]
   (assoc source ::data-source/id (data-source/id source)))
 
+(defn- prep-item [prescription path source data]
+  {:path path
+   :source (-> prescription
+               (get (::data-source/coll-of source))
+               (dissoc ::data-source/original-params)
+               (update ::data-source/params #(merge % data)))})
+
+(defn- map-item [prescription {:keys [path source result]}]
+  (->> (::result/data result)
+       (map (fn [[k v]]
+              (prep-item prescription (concat (->path path) (->path k)) source v)))))
+
 (defn- coll-item [prescription {:keys [path source result]}]
   (->> (::result/data result)
-       (map (fn [data]
-              {:path path
-               :source (-> prescription
-                           (get (::data-source/coll-of source))
-                           (dissoc ::data-source/original-params)
-                           (update ::data-source/params #(merge % data)))}))))
+       (map #(prep-item prescription path source %))))
 
 (defn- eligible-nested [prescription results]
-  (->> results
-       (filter #(-> % :source ::data-source/coll-of))
-       (mapcat #(coll-item prescription %))
-       (map-indexed
-        (fn [idx {:keys [path source]}]
-          [(concat (->path path) [idx]) source]))
-       (into {})))
+  (let [eligible (filter #(-> % :source ::data-source/coll-of) results)]
+    (if (map? (::result/data (:result (first eligible))))
+      (->> eligible
+           (mapcat #(map-item prescription %))
+           (map (fn [{:keys [path source]}] [path source]))
+           (into {}))
+      (->> eligible
+           (mapcat #(coll-item prescription %))
+           (map-indexed
+            (fn [idx {:keys [path source]}]
+              [(concat (->path path) [idx]) source]))
+           (into {})))))
 
 (defn- restore-refreshes [refreshes prescription]
   (reduce

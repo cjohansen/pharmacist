@@ -1117,6 +1117,49 @@
                                       :facility-id 2}
                        ::result/attempts 1}}}))))
 
+(defscenario-async "Loads nested sources from map collection"
+  (go
+    (is (= (into #{}
+                 (-> {:facility {::data-source/fn #'echo-params
+                                 ::data-source/params {:some "facility"}}
+
+                      :facilities {::data-source/coll-of :facility
+                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/params {:ids {:first {:facility-id 1}
+                                                               :second {:facility-id 2}}}}}
+                     sut/fill
+                     (sut/select [:facilities])
+                     exhaust
+                     <!))
+           #{{:path :facilities
+               :source {::data-source/id ::get-facility-ids
+                        ::data-source/params {:ids {:first {:facility-id 1}
+                                                    :second {:facility-id 2}}}
+                        ::data-source/coll-of :facility
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/data {:first {:facility-id 1}
+                                       :second {:facility-id 2}}
+                        ::result/attempts 1}}
+             {:path [:facilities :first]
+              :source {::data-source/id ::echo-params
+                       ::data-source/params {:some "facility"
+                                             :facility-id 1}
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/data {:some "facility"
+                                      :facility-id 1}
+                       ::result/attempts 1}}
+             {:path [:facilities :second]
+              :source {::data-source/id ::echo-params
+                       ::data-source/params {:some "facility"
+                                             :facility-id 2}
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/data {:some "facility"
+                                      :facility-id 2}
+                       ::result/attempts 1}}}))))
+
 (defscenario "Merges data from results"
   (is (= (sut/merge-results [{:path :id
                               :result {::result/data 1}}
