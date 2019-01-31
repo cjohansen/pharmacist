@@ -53,14 +53,6 @@
     (swap! stub-2 update :calls conj args)
     (or val (result/failure))))
 
-(defn echo-with-nested [{::data-source/keys [params]}]
-  (result/success params {:data-1 {::data-source/fn #'echo-params
-                                   ::data-source/params {:id "Nested"}}}))
-
-(defn echo-with-deeply-nested [{::data-source/keys [params]}]
-  (result/success params {:nested {::data-source/fn #'echo-with-nested
-                                   ::data-source/params {:id "Deeply nested"}}}))
-
 (defn refresh-id-when-1 [{::data-source/keys [params]}]
   (if (= 1 (:id params))
     (result/failure {:message "Oops!"} {::result/refresh #{:id}})
@@ -385,89 +377,6 @@
                       ::data-source/deps #{:config}}
              :result {::result/success? false
                       ::result/attempts 0}}]))))
-
-(defscenario-async "Does not fetch nested prescriptions by default"
-  (go
-    (is (= (-> {:data-1 {::data-source/fn #'echo-with-nested
-                         ::data-source/params {:id 42}}}
-               sut/fill
-               (sut/select [:data-1])
-               results
-               <!)
-           [{::result/success? true
-             ::result/attempts 1
-             ::result/data {:id 42}
-             ::result/prescriptions {:data-1 {::data-source/fn #'echo-params
-                                              ::data-source/params {:id "Nested"}}}}]))))
-
-(defscenario-async "Fetches nested prescriptions from prescription"
-  (go
-    (is (= (-> {:data-1 {::data-source/fn #'echo-with-nested
-                         ::data-source/params {:id 42}
-                         ::data-source/nested-prescriptions #{::echo-params}}}
-               sut/fill
-               (sut/select [:data-1])
-               results
-               <!)
-           [{::result/success? true
-             ::result/attempts 1
-             ::result/data {:id 42}
-             ::result/prescriptions {:data-1 {::data-source/fn #'echo-params
-                                              ::data-source/params {:id "Nested"}}}}
-            {::result/success? true
-             ::result/attempts 1
-             ::result/data {:id "Nested"}}]))))
-
-(defscenario-async "Fetches all nested prescriptions"
-  (go
-    (is (= (-> {:data-1 {::data-source/fn #'echo-with-nested
-                         ::data-source/params {:id 42}}}
-               (sut/fill {:walk-nested-prescriptions? true})
-               (sut/select [:data-1])
-               results
-               <!)
-           [{::result/success? true
-             ::result/attempts 1
-             ::result/data {:id 42}
-             ::result/prescriptions {:data-1 {::data-source/fn #'echo-params
-                                              ::data-source/params {:id "Nested"}}}}
-            {::result/success? true
-             ::result/attempts 1
-             ::result/data {:id "Nested"}}]))))
-
-(defscenario-async "Nests prescriptions recursively"
-  (go
-    (is (= (-> {:data-1 {::data-source/fn #'echo-with-deeply-nested
-                         ::data-source/params {:id 42}}}
-               (sut/fill {:walk-nested-prescriptions? true})
-               (sut/select [:data-1])
-               exhaust
-               <!)
-           [{:path :data-1
-             :result {:pharmacist.result/attempts 1
-                      :pharmacist.result/data {:id 42}
-                      :pharmacist.result/prescriptions {:nested {:pharmacist.data-source/fn #'echo-with-nested
-                                                                 :pharmacist.data-source/params {:id "Deeply nested"}}}
-                      :pharmacist.result/success? true}
-             :source {:pharmacist.data-source/deps #{}
-                      :pharmacist.data-source/id ::echo-with-deeply-nested
-                      :pharmacist.data-source/params {:id 42}}}
-            {:path [:data-1 :nested]
-             :result {:pharmacist.result/attempts 1
-                      :pharmacist.result/data {:id "Deeply nested"}
-                      :pharmacist.result/prescriptions {:data-1 {:pharmacist.data-source/fn #'echo-params
-                                                                 :pharmacist.data-source/params {:id "Nested"}}}
-                      :pharmacist.result/success? true}
-             :source {:pharmacist.data-source/deps #{}
-                      :pharmacist.data-source/id ::echo-with-nested
-                      :pharmacist.data-source/params {:id "Deeply nested"}}}
-            {:path [:data-1 :nested :data-1]
-             :result {:pharmacist.result/attempts 1
-                      :pharmacist.result/data {:id "Nested"}
-                      :pharmacist.result/success? true}
-             :source {:pharmacist.data-source/deps #{}
-                      :pharmacist.data-source/id ::echo-params
-                      :pharmacist.data-source/params {:id "Nested"}}}]))))
 
 (defscenario-async "Retries failing fetch"
   (go
@@ -817,31 +726,6 @@
                         ::result/attempts 0
                         ::result/cached? true
                         ::result/data {:id 333}}}])))))
-
-(defscenario-async "Fetches nested prescriptions from cached result"
-  (go
-    (let [prescription {::data-source/fn #'echo-with-nested
-                        ::data-source/params {:id 42}
-                        ::data-source/nested-prescriptions #{::echo-params}}
-          cache (atom {(cache/cache-key prescription)
-                       {::result/success? true
-                        ::result/attempts 1
-                        ::result/data {:id 333}
-                        ::result/prescriptions {:data-1 {::data-source/fn #'echo-params
-                                                         ::data-source/params {:id "Nested"}}}}})]
-      (is (= (-> (sut/fill {:data-1 prescription} (cache/atom-map cache))
-                 (sut/select [:data-1])
-                 results
-                 <!)
-             [{::result/success? true
-               ::result/attempts 0
-               ::result/cached? true
-               ::result/data {:id 333}
-               ::result/prescriptions {:data-1 {::data-source/fn #'echo-params
-                                                ::data-source/params {:id "Nested"}}}}
-              {::result/success? true
-               ::result/attempts 1
-               ::result/data {:id "Nested"}}])))))
 
 (defscenario-async "caches data when successful"
   (go
