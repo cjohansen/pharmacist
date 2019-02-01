@@ -48,11 +48,12 @@ both synchronous and asynchronous sources. Some relevant examples include:
 ## Data sources
 
 To fetch data with Pharmacist you implement **data sources** - functions that
-fetch data from somewhere, and provide a **prescription** - a description of how
-to invoke and coordinate data source functions.
+fetch data from somewhere, provide a **prescription** - a description of how
+to invoke and coordinate data source functions, and finally select some or all
+of the described data.
 
-A data source is an implementation of either `pharmacist.data-source/fetch` or
-`pharmacist.data-source/fetch-sync`:
+A data source is any function that accepts a data source description and returns
+a Pharmacist result:
 
 ```clj
 (require '[pharmacist.data-source :as data-source]
@@ -60,14 +61,13 @@ A data source is an implementation of either `pharmacist.data-source/fetch` or
          '[clj-http.client :as http]
          '[clojure.core.async :refer [chan put!]])
 
-(defmethod data-source/fetch :spotify/playlist [prescription]
-  (let [ch (chan)]
-    (http/get "https://api.spotify.com/playlists"
-              {:async? true
-               :oauth-token (-> prescription ::data-source/params :token)}
-              #(put! ch (result/success (:body %)))
-              #(put! ch (result/failure {:error "Failed to fetch playlists"})))
-    ch))
+(defn spotify-playlists [{::data-source/keys [params]}]
+  (let [res (http/get "https://api.spotify.com/playlists"
+                      {:oauth-token (:token params)
+                       :throw-exceptions false})]
+    (if (http/success? res)
+      (result/success (:body res))
+      (result/failure {:error "Failed to fetch playlists" :res res}))))
 ```
 
 While you certainly could make good of use it with a single data source,
@@ -76,17 +76,15 @@ so a meaningful hello world will need at least two sources. Let's define another
 one, which fetches an API token:
 
 ```clj
-(defmethod data-source/fetch :spotify/auth [prescription]
-  (let [ch (chan)
-        params (::data-source/params prescription)]
-    (http/post "https://accounts.spotify.com/api/token"
-               {:async? true
-                :form-params {:grant_type "client_credentials"}
-                :basic-auth [(:spotify-api-user params)
-                             (:spotify-api-password params)]}
-               #(put! ch (result/success (:body %)))
-               #(put! ch (result/failure {:error "Failed to acquire token"})))
-    ch))
+(defn spotify-auth [{::data-source/keys [params]}]
+  (let [res (http/post "https://accounts.spotify.com/api/token"
+                       {:throw-exceptions false
+                        :form-params {:grant_type "client_credentials"}
+                        :basic-auth [(:spotify-api-user params)
+                                     (:spotify-api-password params)]})]
+    (if (http/success? res)
+      (result/success (:body res))
+      (result/failure {:error "Failed to acquire token" :res res}))))
 ```
 
 ## Prescriptions
@@ -97,23 +95,27 @@ auth data source as a parameter to the one fetching playlists. This is what the
 
 ```clj
 (def prescription
-  {::auth {::data-source/id :spotify/auth
+  {::auth {::data-source/fn #'spotify-auth
            ::data-source/params {:spotify-api-user "username"
                                  :spotify-api-password "password"}}
 
-   ::playlists {::data-source/id :spotify/playlists
+   ::playlists {::data-source/fn #'spotify-playlists
                 ::data-source/params {:token ^::data-source/dep [::auth :access_token]}}})
 ```
 
 Inlining the username and password is a terrible idea, we'll see [a better
 solution](#initial-params) for this shortly.
 
+Passing quoted vars (`#'spotify-auth`) instead of function values
+(`spotify-auth`) makes your code reloadable, and enables Pharmacist to infer the
+function name in a predictable manner.
+
 Notice the value of the `:token` parameter in `::playlists`. The metadata
 informs Pharmacist that this value will be provided by the `::auth` data source.
 Pharmacist now knows to fetch `::auth` first, to extract `:access_token` from
 its resulting data, and pass it as the `:token` parameter to `::playlists`. If
 there had been no such dependency, Pharmacist would've retrieved both items in
-parallel.
+parallel (or possibly only the one you selected).
 
 To fetch data, pass the prescription to `pharmacist.prescription/fill`, and then
 `pharmacist.prescription/select` the desired keys:
@@ -157,6 +159,15 @@ the message from the `collect` channel would contain:
  ::playlists {...}}
 ```
 
+You can also fetch the whole thing synchronously:
+
+```clj
+(require '[pharmacist.prescription :as p]
+         '[clojure.core.async :refer [<!!]])
+
+(println (<!! (p/collect (p/select (p/fill prescription) [::playlists]))))
+```
+
 See [the section on async vs sync fetch](#synchronous-fetches) for more
 information on the return value from collect.
 
@@ -193,18 +204,17 @@ And this is how you fill it with runtime configuration:
 ```clj
 (require '[pharmacist.prescription :as p]
          '[pharmacist.result :as result]
-         '[clojure.core.async :refer [go <!]])
+         '[clojure.core.async :refer [<!!]])
 
 (def env (System/getenv))
 
-(let [ch (-> prescription
-             (p/fill {:params {:config {:spotify-api-user (get env "SPOTIFY_USER")
-                                        :spotify-api-password (get env "SPOTIFY_PASS")}}})
-             (p/select [::playlists]))]
-  (go-loop []
-    (when-let [item (<! ch)]
-      (prn (::result/path item) (::result/success? item) (::result/data item))
-      (recur))))
+(println
+ (-> prescription
+     (p/fill {:params {:config {:spotify-api-user (get env "SPOTIFY_USER")
+                                :spotify-api-password (get env "SPOTIFY_PASS")}}})
+     (p/select [::playlists])
+     p/collect
+     <!!))
 ```
 
 There are no magical or conventional names here. Any key inside the map passed
@@ -226,9 +236,8 @@ resource, declare the full map as a dependency:
 ## Retry on failure
 
 HTTP and other network protocols don't always work exactly as planned.
-Sometimes, problems go away if you just try again. By default, Pharmacist will
-not retry sources. To enable them, specify the maximum number of retries on the
-prescription:
+Sometimes, problems go away if you just try again. To instruct Pharmacist to
+retry a source, specify the maximum number of retries on the prescription:
 
 ```clj
 (def prescription
@@ -257,16 +266,16 @@ returned from the data source can inform Pharmacist on whether or not it is
 worth trying again:
 
 ```clj
-(defmethod data-source/fetch :spotify/auth [prescription]
-  (let [ch (chan)]
-    (http/post "https://accounts.spotify.com/api/token"
-               {:async? true
-                :form-params {:grant_type "client_credentials"}
-                :basic-auth [(:spotify-api-user params)
-                             (:spotify-api-password params)]}
-               #(put! ch (result/success (:body %)))
-               #(put! ch (result/failure % {::result/retryable? (not= 401 (:status %))})))
-    ch))
+(defn spotify-auth [{::data-source/keys [params]}]
+  (let [res (http/post "https://accounts.spotify.com/api/token"
+                       {:throw-exceptions false
+                        :form-params {:grant_type "client_credentials"}
+                        :basic-auth [(:spotify-api-user params)
+                                     (:spotify-api-password params)]})]
+    (if (http/success? res)
+      (result/success (:body res))
+      (result/failure {:error "Failed to acquire token" :res res}
+                      {::result/retryable? (not= 401 (:status %))}))))
 ```
 
 When `::result/retryable?` is `false`, Pharmacist will not retry the fetch, even
@@ -295,21 +304,21 @@ The playlist resource can indicate that it might be worth a retry with a new
 token the following way:
 
 ```clj
-(defmethod data-source/fetch :spotify/playlist [{::data-source/keys [params]}]
-  (let [ch (chan)]
-    (http/get "https://api.spotify.com/playlists"
-              {:async? true
-               :oauth-token (:token params)}
-              #(put! ch (result/success (:body %)))
-              #(put! ch (result/failure {:error "Failed to fetch playlists"}
-                                        (when (= 403 (:status %))
-                                          {::result/retryable? true
-                                           ::result/refresh [:token]}))))
-    ch))
+(defn spotify-playlists [{::data-source/keys [params]}]
+  (let [res (http/get "https://api.spotify.com/playlists"
+                      {:oauth-token (:token params)
+                       :throw-exceptions false})]
+    (if (http/success? res)
+      (result/success (:body res))
+      (result/failure {:error "Failed to fetch playlists" :res res}
+                      (when (= 403 (:status res))
+                        {::result/retryable? true
+                         ::result/refresh [:token]})))))
 ```
 
 Pharmacist will know that the `:token` parameter came from the `::auth` source,
-re-fetch it without caching, and then retry the playlist with a fresh token.
+fetch it again (bypassing the cache), and then retry the playlist with a fresh
+token.
 
 ## Caching
 
