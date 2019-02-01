@@ -58,8 +58,7 @@ a Pharmacist result:
 ```clj
 (require '[pharmacist.data-source :as data-source]
          '[pharmacist.result :as result]
-         '[clj-http.client :as http]
-         '[clojure.core.async :refer [chan put!]])
+         '[clj-http.client :as http])
 
 (defn spotify-playlists [{::data-source/keys [params]}]
   (let [res (http/get "https://api.spotify.com/playlists"
@@ -123,7 +122,7 @@ To fetch data, pass the prescription to `pharmacist.prescription/fill`, and then
 ```clj
 (require '[pharmacist.prescription :as p]
          '[pharmacist.result :as result]
-         '[clojure.core.async :refer [go <!]])
+         '[clojure.core.async :refer [go-loop <!]])
 
 (let [ch (p/select (p/fill prescription) [::playlists])]
   (go-loop []
