@@ -165,7 +165,7 @@
   {:path path
    :source (-> prescription
                (get (::data-source/coll-of source))
-               (dissoc ::data-source/original-params)
+               (dissoc ::data-source/original-params ::data-source/deps ::data-source/cache-deps)
                (update ::data-source/params #(merge % data)))})
 
 (defn- map-items [prescription {:keys [path source result]}]

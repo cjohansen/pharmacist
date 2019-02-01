@@ -1160,6 +1160,90 @@
                                       :facility-id 2}
                        ::result/attempts 1}}}))))
 
+(defscenario-async "Loads nested sources shadowing dependencies"
+  (go
+    (is (= (into #{}
+                 (-> {:user {::data-source/fn #'echo-params
+                             ::data-source/params {:id 13}}
+
+                      :facility-id {::data-source/fn #'echo-params
+                                    ::data-source/params {:id 1337}}
+
+                      :facility {::data-source/fn #'echo-params
+                                 ::data-source/params {:user ^::data-source/dep [:user]
+                                                       :facility-id ^::data-source/dep [:facility-id :id]}}
+
+                      :facilities {::data-source/coll-of :facility
+                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/params {:ids [{:facility-id 1}]}}}
+                     sut/fill
+                     (sut/select [:facility :facilities])
+                     exhaust
+                     <!))
+           #{{:path :facility-id
+              :source {::data-source/id ::echo-params
+                       ::data-source/params {:id 1337}
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/attempts 1
+                       ::result/data {:id 1337}}}
+             {:path :user
+              :source {::data-source/id ::echo-params
+                       ::data-source/params {:id 13}
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/attempts 1
+                       ::result/data {:id 13}}}
+             {:path :facility
+              :source {::data-source/id ::echo-params
+                       ::data-source/params {:user {:id 13}
+                                             :facility-id 1337}
+                       ::data-source/deps #{:user :facility-id}}
+              :result {::result/success? true
+                       ::result/attempts 1
+                       ::result/data {:user {:id 13}
+                                      :facility-id 1337}}}
+             {:path :facilities
+              :source {::data-source/id ::get-facility-ids
+                       ::data-source/params {:ids [{:facility-id 1}]}
+                       ::data-source/coll-of :facility
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/data [{:facility-id 1}]
+                       ::result/attempts 1}}
+             {:path [:facilities 0]
+              :source {::data-source/id ::echo-params
+                       ::data-source/params {:user {:id 13}
+                                             :facility-id 1}
+                       ::data-source/deps #{:user}}
+              :result {::result/success? true
+                       ::result/data {:user {:id 13}
+                                      :facility-id 1}
+                       ::result/attempts 1}}}))))
+
+(defscenario-async "Does not load shadowed deps in nested sources"
+  (go
+    (is (= (->> (-> {:user {::data-source/fn #'echo-params
+                            ::data-source/params {:id 13}}
+
+                     :facility-id {::data-source/fn #'echo-params
+                                   ::data-source/params {:id 1337}}
+
+                     :facility {::data-source/fn #'echo-params
+                                ::data-source/params {:user ^::data-source/dep [:user]
+                                                      :facility-id ^::data-source/dep [:facility-id :id]}}
+
+                     :facilities {::data-source/coll-of :facility
+                                  ::data-source/fn #'get-facility-ids
+                                  ::data-source/params {:ids [{:facility-id 1}]}}}
+                    sut/fill
+                    (sut/select [:facilities])
+                    exhaust
+                    <!)
+                (map :path)
+                (into #{}))
+           #{:user :facilities [:facilities 0]}))))
+
 (defscenario "Merges data from results"
   (is (= (sut/merge-results [{:path :id
                               :result {::result/data 1}}
