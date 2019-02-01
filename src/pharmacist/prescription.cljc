@@ -23,7 +23,7 @@
     p
     [p]))
 
-(defn dep? [param]
+(defn- dep? [param]
   (::data-source/dep (meta param)))
 
 (defn- get-dep [path param]
