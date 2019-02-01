@@ -75,7 +75,7 @@
   (resolve-deps-with prescription ks ::data-source/cache-deps (fn [source _] (cache-deps source))))
 
 (defn- dep-path [[source & path]]
-  (concat [source] [::result/data] path))
+  (concat [source ::result/data] path))
 
 (defn- provide-deps [results source]
   (cond-> source
@@ -112,24 +112,18 @@
     (assoc result ::result/retrying? (retryable? {:source source :result result}))))
 
 (defn- fetch [{:keys [cache-put]} path source]
-  (let [attempts (inc (get source ::result/attempts 0))]
-    (a/go
-      (let [source (assoc source ::result/attempts attempts)
-            result {:source source
-                    :path path
-                    :result (-> (data-source/fetch source)
-                                a/<!
-                                (assoc ::result/attempts attempts)
-                                (prep-result source))}]
-        (when (and (ifn? cache-put) (result/success? (:result result)))
-          (cache-put (->path path) (:source result) (assoc (:result result)
-                                                           :pharmacist.cache/cached-at (now))))
-        result))))
-
-(defn- fetch-satisfied-sources [opt loaded sources]
-  (->> sources
-       (filter (partial satisfied? loaded))
-       (map (fn [[path source]] (fetch opt path source)))))
+  (a/go
+    (let [attempts (inc (get source ::result/attempts 0))
+          source (assoc source ::result/attempts attempts)
+          result {:source source
+                  :path path
+                  :result (-> (a/<! (data-source/fetch source))
+                              (assoc ::result/attempts attempts)
+                              (prep-result source))}]
+      (when (and (ifn? cache-put) (result/success? (:result result)))
+        (cache-put (->path path) (:source result) (assoc (:result result)
+                                                         :pharmacist.cache/cached-at (now))))
+      result)))
 
 (defn- params->deps [{::data-source/keys [original-params]} params]
   (mapcat (fn [param]
@@ -167,44 +161,41 @@
 (defn- ensure-id [source]
   (assoc source ::data-source/id (data-source/id source)))
 
-(defn- prep-item [prescription path source data]
+(defn- prep-coll-item [prescription path source data]
   {:path path
    :source (-> prescription
                (get (::data-source/coll-of source))
                (dissoc ::data-source/original-params)
                (update ::data-source/params #(merge % data)))})
 
-(defn- map-item [prescription {:keys [path source result]}]
+(defn- map-items [prescription {:keys [path source result]}]
   (->> (::result/data result)
        (map (fn [[k v]]
-              (prep-item prescription (concat (->path path) (->path k)) source v)))))
+              (prep-coll-item prescription (concat (->path path) (->path k)) source v)))))
 
-(defn- coll-item [prescription {:keys [path source result]}]
+(defn- coll-items [prescription {:keys [path source result]}]
   (->> (::result/data result)
-       (map #(prep-item prescription path source %))))
+       (map #(prep-coll-item prescription path source %))))
 
 (defn- eligible-nested [prescription results]
   (let [eligible (filter #(-> % :source ::data-source/coll-of) results)]
     (if (map? (::result/data (:result (first eligible))))
       (->> eligible
-           (mapcat #(map-item prescription %))
+           (mapcat #(map-items prescription %))
            (map (fn [{:keys [path source]}] [path source]))
            (into {}))
       (->> eligible
-           (mapcat #(coll-item prescription %))
+           (mapcat #(coll-items prescription %))
            (map-indexed
             (fn [idx {:keys [path source]}]
               [(concat (->path path) [idx]) source]))
            (into {})))))
 
 (defn- restore-refreshes [refreshes prescription]
-  (reduce
-   (fn [prescription refresh]
-     (update prescription refresh #(assoc %
-                                          ::data-source/params (::data-source/original-params %)
-                                          ::data-source/refreshing? true)))
-   prescription
-   refreshes))
+  (reduce #(update %1 %2 assoc
+                   ::data-source/params (get-in %1 [%2 ::data-source/original-params])
+                   ::data-source/refreshing? true)
+          prescription refreshes))
 
 (defn- update-prescription [prescription nested results retryable refresh]
   (->> (map (fn [{:keys [path source]}] [path source]) results)
@@ -220,6 +211,15 @@
         (into {})
         (merge results))
    refresh))
+
+(defn- process-batch-results [opt loaded prescription ks results retryable]
+  (when (or (seq results) (seq retryable))
+    (let [nested (eligible-nested prescription results)
+          refresh (mapcat ::result/refresh (vals retryable))
+          loaded (update-results loaded results refresh)]
+      {:loaded loaded
+       :prescription (update-prescription prescription nested results retryable refresh)
+       :ks (set (pending loaded (concat ks (keys nested) refresh)))})))
 
 (defn- load-cached [{:keys [cache-get]} resolved ks]
   (when (ifn? cache-get)
@@ -237,15 +237,6 @@
                                   ::result/cached? true)})))
          (filter identity))))
 
-(defn- process-batch-results [opt loaded prescription ks results retryable]
-  (when (or (seq results) (seq retryable))
-    (let [nested (eligible-nested prescription results)
-          refresh (mapcat ::result/refresh (vals retryable))
-          loaded (update-results loaded results refresh)]
-      {:loaded loaded
-       :prescription (update-prescription prescription nested results retryable refresh)
-       :ks (set (pending loaded (concat ks (keys nested) refresh)))})))
-
 (defn- try-cache [opt ch result loaded prescription ks]
   (let [results (load-cached opt prescription ks)]
     (a/<!!
@@ -254,13 +245,6 @@
          (a/>! ch (update res :source prep-source))
          (swap! result assoc (:path res) (:result res)))
        (process-batch-results opt loaded prescription ks results nil)))))
-
-(defn- deps-summary [prescription]
-  (->> prescription
-       (map (fn [[k {::data-source/keys [deps]}]] [k deps]))
-       (filter second)
-       (map first)
-       (into #{})))
 
 (defn- expand-cache-deps [loaded prescription ks]
   (when (seq (remove ::data-source/cache-deps (vals (select-keys prescription ks))))
@@ -310,7 +294,8 @@
    (a/go
      (let [[results retryable]
            (->> (select-keys prescription ks)
-                (fetch-satisfied-sources opt loaded)
+                (filter (partial satisfied? loaded))
+                (map (fn [[path source]] (fetch opt path source)))
                 (realize-results ch result)
                 a/<!)]
        (process-batch-results opt loaded prescription ks results retryable)))))
@@ -362,16 +347,11 @@
                  (assoc-in res path (::result/data result))) {})))
 
 (defn collect [port]
-  (a/go-loop [res {}
-              sources []]
-    (let [{:keys [path result] :as message} (a/<! port)]
+  (a/go-loop [results []]
+    (let [result (a/<! port)]
       (cond
-        (nil? path) {::result/success? (success? sources)
-                     ::result/sources sources
-                     ::result/data res}
+        (nil? result) {::result/success? (success? results)
+                       ::result/sources results
+                       ::result/data (merge-results results)}
 
-        (result/success? result)
-        (recur (assoc-in res (->path path) (::result/data result))
-               (conj sources message))
-
-        :default (recur res (conj sources message))))))
+        :default (recur (conj results result))))))
