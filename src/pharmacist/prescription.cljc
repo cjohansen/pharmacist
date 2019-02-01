@@ -200,7 +200,7 @@
 (defn- update-prescription [prescription nested results retryable refresh]
   (->> (map (fn [{:keys [path source]}] [path source]) results)
        (into {})
-       (apply merge prescription nested (mapvals #(dissoc % ::data-source/deps ::data-source/cache-deps) retryable))
+       (merge prescription nested (mapvals #(dissoc % ::data-source/deps ::data-source/cache-deps) retryable))
        (restore-refreshes refresh)))
 
 (defn- update-results [results batch-results refresh]
