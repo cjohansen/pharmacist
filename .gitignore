@@ -1,3 +1,7 @@
 .cpcache
 .dir-locals.el
 .nrepl-port
+.cljs_node_repl
+/.rebel_readline_history
+node_modules
+target

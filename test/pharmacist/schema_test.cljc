@@ -1,11 +1,11 @@
 (ns pharmacist.schema-test
-  (:require [pharmacist.data-source :as data-source]
-            [pharmacist.schema :as sut]
+  (:require #?(:clj [clojure.spec.alpha :as s]
+               :cljs [cljs.spec.alpha :as s])
             #?(:clj [clojure.test :refer [deftest testing is]]
                :cljs [cljs.test :refer [deftest testing is]])
-            #?(:clj [clojure.spec.alpha :as s]
-               :cljs [cljs.spec.alpha :as s])
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [pharmacist.data-source :as data-source]
+            [pharmacist.schema :as sut]))
 
 (deftest specced-keys
   (testing "Gets keys of specs in registry"
@@ -44,7 +44,8 @@
 (deftest coll-of-test
   (testing "Collection of strings"
     (is (= (sut/coll-of (s/coll-of string?))
-           'clojure.core/string?)))
+           #?(:clj 'clojure.core/string?
+              :cljs 'cljs.core/string?))))
 
   (testing "Collection of spec"
     (is (= (sut/coll-of (s/coll-of ::some-spec))

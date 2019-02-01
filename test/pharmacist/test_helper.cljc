@@ -5,10 +5,10 @@
                :cljs [cljs.test :refer [is]])
             #?(:clj [clojure.spec.alpha :as s]
                :cljs [cljs.spec.alpha :as s])
-            [orchestra.spec.test :as st]))
+            #?(:clj [orchestra.spec.test :as st])))
 
 (s/check-asserts true)
-(st/instrument)
+#?(:clj (st/instrument))
 
 (defn test-within
   "Asserts that ch does not close or produce a value within ms. Returns a
@@ -21,4 +21,7 @@
           v)))
 
 (defn test-name [scenario]
-  (symbol (clojure.string/replace scenario #" " "-")))
+  (-> scenario
+      (clojure.string/replace #"[^a-zA-Z0-9\-_\s]" "")
+      (clojure.string/replace #" " "-")
+      symbol))

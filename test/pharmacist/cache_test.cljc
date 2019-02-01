@@ -1,10 +1,10 @@
 (ns pharmacist.cache-test
   (:require [pharmacist.cache :as sut]
             [pharmacist.data-source :as data-source]
-            #?(:clj [pharmacist.clojure-test-helper :refer [defscenario]]
-               :cljs [pharmacist.cljs-test-helper :refer [defscenario]])
+            #?(:clj [pharmacist.clojure-test-helper :refer [defscenario]])
             #?(:clj [clojure.test :refer [deftest testing is]]
-               :cljs [cljs.test :refer [deftest testing is]])))
+               :cljs [cljs.test :refer [deftest testing is]]))
+  #?(:cljs (:require-macros [pharmacist.cljs-test-helper :refer [defscenario]])))
 
 (defmethod data-source/cache-key :custom [{::data-source/keys [params]}]
   [:customz (:id params)])

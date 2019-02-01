@@ -1,11 +1,11 @@
 (ns pharmacist.validate-test
-  (:require [pharmacist.data-source :as data-source]
-            [pharmacist.prescription :as p]
-            [pharmacist.validate :as sut]
-            #?(:clj [clojure.test :refer [is]]
+  (:require #?(:clj [clojure.test :refer [is]]
                :cljs [cljs.test :refer [is]])
-            #?(:clj [pharmacist.clojure-test-helper :refer [defscenario]]
-               :cljs [pharmacist.cljs-test-helper :refer [defscenario]])))
+            #?(:clj [pharmacist.clojure-test-helper :refer [defscenario]])
+            [pharmacist.data-source :as data-source]
+            [pharmacist.prescription :as p]
+            [pharmacist.validate :as sut])
+  #?(:cljs (:require-macros [pharmacist.cljs-test-helper :refer [defscenario]])))
 
 (defscenario "Errors on cyclic dependency"
   (is (thrown-with-msg?

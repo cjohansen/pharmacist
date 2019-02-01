@@ -15,15 +15,28 @@
 (s/def ::prescription (s/keys :req [::id]
                               :opt [::params ::retryable? ::retries ::dep ::nested-prescriptions]))
 
+(defn- fname [f]
+  (when-let [name (some-> f str (str/replace #"_" "-"))]
+    (second (re-find #"(?:#')?(.*)" name))))
+
 (defn id [{::keys [id fn async-fn]}]
   (or id
       (when-let [f (or fn async-fn)]
-        (if-let [m (meta f)]
-          (keyword (str (:ns m)) (str(:name m)))
-          (let [name (some-> f str (str/replace #"_" "-"))]
-            (if-let [[_ ns n] (re-find #"(.*)\$(.*)@" name)]
-              (keyword ns n)
-              (keyword name)))))))
+        #?(:clj
+           (if-let [m (meta f)]
+             (keyword (str (:ns m)) (str(:name m)))
+             (let [name (fname f)]
+               (if-let [[_ ns n] (re-find #"(.*)\$(.*)@" name)]
+                 (keyword ns n)
+                 (keyword name))))
+           :cljs
+           (let [name (fname f)]
+             (if-let [[_ res] (re-find #"function (.+)\(" name)]
+               (let [[f & ns ] (-> res (str/split #"\$") reverse)]
+                 (keyword (str/join "." (reverse ns)) f))
+               (if (re-find #"function \(" name)
+                 (keyword (str (random-uuid)))
+                 (keyword (str/replace name #" " "-")))))))))
 
 (defmulti fetch-sync (fn [prescription] (::id prescription)))
 (defmulti fetch (fn [prescription] (::id prescription)))

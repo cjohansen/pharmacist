@@ -1,18 +1,18 @@
 (ns pharmacist.prescription-test
-  (:require [pharmacist.prescription :as sut]
-            [pharmacist.data-source :as data-source]
-            [pharmacist.cache :as cache]
-            [pharmacist.result :as result]
-            [pharmacist.schema :as schema]
-            #?(:clj [pharmacist.clojure-test-helper :refer [defscenario defscenario-async]]
-               :cljs [pharmacist.cljs-test-helper :refer [defscenario defscenario-async]])
-            [pharmacist.schema :as schema]
+  (:require #?(:clj [clojure.core.async :refer [<! <!! go go-loop timeout]]
+               :cljs [cljs.core.async :refer [<! go go-loop timeout]])
+            #?(:clj [clojure.spec.alpha :as s]
+               :cljs [cljs.spec.alpha :as s])
             #?(:clj [clojure.test :refer [is]]
                :cljs [cljs.test :refer [is]])
-            #?(:clj [clojure.core.async :refer [<! <!! go go-loop timeout]]
-               :cljs [cljs.core.async :refer [<! <!! go go-loop timeout]])
-            #?(:clj [clojure.spec.alpha :as s]
-               :cljs [cljs.spec.alpha :as s])))
+            #?(:clj [pharmacist.clojure-test-helper :refer [defscenario defscenario-async]])
+            [pharmacist.cache :as cache]
+            [pharmacist.data-source :as data-source]
+            [pharmacist.prescription :as sut]
+            [pharmacist.result :as result]
+            [pharmacist.schema :as schema]
+            [pharmacist.test-helper])
+  #?(:cljs (:require-macros [pharmacist.cljs-test-helper :refer [defscenario defscenario-async]])))
 
 (defn exhaust [port]
   (go-loop [messages []]
@@ -232,7 +232,8 @@
 
 (defscenario-async "Defaults id to demunged keyword"
   (go
-    (is (re-find #"pharmacist.prescription-test\$fn"
+    (is (re-find #?(:clj #"pharmacist.prescription-test\$fn"
+                    :cljs #".{8}-.{4}-.{4}-.{4}-.{12}")
                  (-> (sut/fill {:data-1 {::data-source/fn (fn [source])}})
                      (sut/select [:data-1])
                      <!
@@ -311,101 +312,90 @@
       (is (= (-> @stub-1 :calls count) 1)))))
 
 (defscenario-async "Fetches immediate dependency of selected data sources"
-  (go
-    (is (= (-> {:data-1 {::data-source/fn #'echo-params
-                         ::data-source/params {:id 1
-                                               :dep ^::data-source/dep [:data-3 :id]}}
-                :data-3 {::data-source/fn #'echo-params
-                         ::data-source/params {:id 3}}}
-               sut/fill
-               (sut/select [:data-1])
-               results
-               <!)
-           [{::result/success? true
-             ::result/attempts 1
-             ::result/data {:id 3}}
-            {::result/success? true
-             ::result/attempts 1
-             ::result/data {:id 1 :dep 3}}]))))
+  (let [prescription {:data-1 {::data-source/fn #'echo-params
+                               ::data-source/params {:id 1
+                                                     :dep ^::data-source/dep [:data-3 :id]}}
+                      :data-3 {::data-source/fn #'echo-params
+                               ::data-source/params {:id 3}}}]
+    (go
+      (is (= (<! (results (sut/select (sut/fill prescription) [:data-1])))
+             [{::result/success? true
+               ::result/attempts 1
+               ::result/data {:id 3}}
+              {::result/success? true
+               ::result/attempts 1
+               ::result/data {:id 1 :dep 3}}])))))
 
 (defscenario-async "Fetches all transitive dependencies of selected data sources"
-  (go
-    (is (= (-> {:data-1 {::data-source/fn #'echo-params
-                         ::data-source/params {:id 1
-                                               :dep ^::data-source/dep [:data-2 :dep]}}
-                :data-2 {::data-source/fn #'echo-params
-                         ::data-source/params {:id 2
-                                               :dep ^::data-source/dep [:data-3 :id]}}
-                :data-3 {::data-source/fn #'echo-params
-                         ::data-source/params {:id 3}}}
-               sut/fill
-               (sut/select [:data-1])
-               results
-               <!)
-           [{::result/success? true
-             ::result/attempts 1
-             ::result/data {:id 3}}
-            {::result/success? true
-             ::result/attempts 1
-             ::result/data {:id 2 :dep 3}}
-            {::result/success? true
-             ::result/attempts 1 ::result/data {:id 1 :dep 3}}]))))
+  (let [prescription {:data-1 {::data-source/fn #'echo-params
+                               ::data-source/params {:id 1
+                                                     :dep ^::data-source/dep [:data-2 :dep]}}
+                      :data-2 {::data-source/fn #'echo-params
+                               ::data-source/params {:id 2
+                                                     :dep ^::data-source/dep [:data-3 :id]}}
+                      :data-3 {::data-source/fn #'echo-params
+                               ::data-source/params {:id 3}}}]
+    (go
+      (is (= (<! (results (sut/select (sut/fill prescription) [:data-1])))
+             [{::result/success? true
+               ::result/attempts 1
+               ::result/data {:id 3}}
+              {::result/success? true
+               ::result/attempts 1
+               ::result/data {:id 2 :dep 3}}
+              {::result/success? true
+               ::result/attempts 1 ::result/data {:id 1 :dep 3}}])))))
 
 (defscenario-async "Fetches sources with initial params"
-  (go
-    (is (= (-> {:data-1 {::data-source/fn #'echo-params
-                         ::data-source/params {:id ^::data-source/dep [:config :dep]}}}
-               (sut/fill {:params {:config {:dep 42}}})
-               (sut/select [:data-1])
-               results
-               <!)
-           [{::result/success? true
-             ::result/attempts 1
-             ::result/data {:id 42}}]))))
+  (let [prescription {:data-1 {::data-source/fn #'echo-params
+                               ::data-source/params {:id ^::data-source/dep [:config :dep]}}}]
+    (go
+      (is (= (-> prescription
+                 (sut/fill {:params {:config {:dep 42}}})
+                 (sut/select [:data-1])
+                 results
+                 <!)
+             [{::result/success? true
+               ::result/attempts 1
+               ::result/data {:id 42}}])))))
 
 (defscenario-async "Gives up if requirements cannot be met"
-  (go
-    (is (= (-> {:data-1 {::data-source/fn #'echo-params
-                         ::data-source/params {:id ^::data-source/dep [:config :dep]}}}
-               sut/fill
-               (sut/select [:data-1])
-               exhaust
-               <!)
-           [{:path :data-1
-             :source {::data-source/id ::echo-params
-                      ::data-source/params {:id ^::data-source/dep [:config :dep]}
-                      ::data-source/deps #{:config}}
-             :result {::result/success? false
-                      ::result/attempts 0}}]))))
+  (let [prescription {:data-1 {::data-source/fn #'echo-params
+                               ::data-source/params {:id ^::data-source/dep [:config :dep]}}}]
+    (go
+      (is (= (<! (exhaust (sut/select (sut/fill prescription) [:data-1])))
+             [{:path :data-1
+               :source {::data-source/id ::echo-params
+                        ::data-source/params {:id ^::data-source/dep [:config :dep]}
+                        ::data-source/deps #{:config}}
+               :result {::result/success? false
+                        ::result/attempts 0}}])))))
 
 (defscenario-async "Retries failing fetch"
-  (go
+  (let [prescription {:data-1 {::data-source/fn #'echo-stub-2
+                               ::data-source/params {}
+                               ::data-source/retries 1}}]
     (stub stub-2 [(result/failure {:message "Oops!"})
                   (result/success {:id 13})])
-    (is (= (-> {:data-1 {::data-source/fn #'echo-stub-2
-                         ::data-source/params {}
-                         ::data-source/retries 1}}
-               sut/fill
-               (sut/select [:data-1])
-               exhaust
-               <!)
-           [{:path :data-1
-             :source {::data-source/id ::echo-stub-2
-                      ::data-source/params {}
-                      ::data-source/retries 1
-                      ::data-source/deps #{}}
-             :result {::result/success? false
-                      ::result/data {:message "Oops!"}
-                      ::result/attempts 1
-                      ::result/retrying? true}}
-            {:path :data-1
-             :source {::data-source/id ::echo-stub-2
-                      ::data-source/params {}
-                      ::data-source/retries 1
-                      ::data-source/deps #{}}
-             :result {::result/success? true
-                      ::result/data {:id 13}
-                      ::result/attempts 2}}]))))
+    (go
+      (is (= (<! (exhaust (sut/select (sut/fill prescription) [:data-1])))
+             [{:path :data-1
+               :source {::data-source/id ::echo-stub-2
+                        ::data-source/params {}
+                        ::data-source/retries 1
+                        ::data-source/deps #{}}
+               :result {::result/success? false
+                        ::result/data {:message "Oops!"}
+                        ::result/attempts 1
+                        ::result/retrying? true}}
+              {:path :data-1
+               :source {::data-source/id ::echo-stub-2
+                        ::data-source/params {}
+                        ::data-source/retries 1
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/data {:id 13}
+                        ::result/attempts 2}}])))))
 
 (defscenario-async "Does not retry when retries is not set"
   (go
@@ -426,33 +416,30 @@
                       ::result/attempts 1}}]))))
 
 (defscenario-async "Gives up after retrying n times"
-  (go
-    (stub stub-2 [(result/failure {:message "Oops!"})
-                  (result/failure {:message "Oops!"})
-                  (result/failure {:message "Oops!"})])
-    (is (= (-> {:data-1 {::data-source/fn #'echo-stub-2
-                         ::data-source/retries 2
-                         ::data-source/params {}}
-                :data-2 {::data-source/fn #'echo-stub-2
-                         ::data-source/params ^::data-source/dep [:data-1 :id]}}
-               sut/fill
-               (sut/select [:data-2])
-               results
-               <!)
-           [{::result/success? false
-             ::result/data {:message "Oops!"}
-             ::result/attempts 1
-             ::result/retrying? true}
-            {::result/success? false
-             ::result/data {:message "Oops!"}
-             ::result/attempts 2
-             ::result/retrying? true}
-            {::result/success? false
-             ::result/data {:message "Oops!"}
-             ::result/attempts 3
-             ::result/retrying? false}
-            {::result/success? false
-             ::result/attempts 0}]))))
+  (let [prescription {:data-1 {::data-source/fn #'echo-stub-2
+                               ::data-source/retries 2
+                               ::data-source/params {}}
+                      :data-2 {::data-source/fn #'echo-stub-2
+                               ::data-source/params ^::data-source/dep [:data-1 :id]}}]
+    (go
+      (stub stub-2 [(result/failure {:message "Oops!"})
+                    (result/failure {:message "Oops!"})
+                    (result/failure {:message "Oops!"})])
+      (is (= (<! (results (sut/select (sut/fill prescription) [:data-2])))
+             [{::result/success? false
+               ::result/data {:message "Oops!"}
+               ::result/attempts 1
+               ::result/retrying? true}
+              {::result/success? false
+               ::result/data {:message "Oops!"}
+               ::result/attempts 2
+               ::result/retrying? true}
+              {::result/success? false
+               ::result/data {:message "Oops!"}
+               ::result/attempts 3
+               ::result/retrying? false}
+              {::result/success? false
+               ::result/attempts 0}])))))
 
 (defscenario-async "Same filled prescription does not further retry failed source"
   (go
@@ -469,145 +456,134 @@
                ::result/retrying? false}])))))
 
 (defscenario-async "Refreshes dependency before retrying"
-  (go
-    (stub stub-1 [{:id 1} {:id 2}])
-    (is (= (-> {:data-1 {::data-source/fn #'echo-stub-1}
-                :data-2 {::data-source/fn #'refresh-id-when-1
-                         ::data-source/retries 2
-                         ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
-               sut/fill
-               (sut/select [:data-2])
-               exhaust
-               <!)
-           [{:path :data-1
-             :source {::data-source/deps #{}
-                      ::data-source/id ::echo-stub-1
-                      ::data-source/params {}}
-             :result {::result/attempts 1
-                      ::result/data {:id 1}
-                      ::result/success? true}}
-            {:path :data-2
-             :source {::data-source/deps #{:data-1}
-                      ::data-source/id ::refresh-id-when-1
-                      ::data-source/params {:id 1}
-                      ::data-source/retries 2}
-             :result {::result/attempts 1
-                      ::result/data {:message "Oops!"}
-                      ::result/refresh #{:id}
-                      ::result/success? false
-                      ::result/retrying? true}}
-            {:path :data-1
-             :source {::data-source/deps #{}
-                      ::data-source/id ::echo-stub-1
-                      ::data-source/params {}}
-             :result {::result/attempts 2
-                      ::result/data {:id 2}
-                      ::result/success? true}}
-            {:path :data-2
-             :source {::data-source/deps #{:data-1}
-                      ::data-source/id ::refresh-id-when-1
-                      ::data-source/params {:id 2}
-                      ::data-source/retries 2}
-             :result {::result/attempts 2
-                      ::result/data {:id 2}
-                      ::result/success? true}}]))))
-
-(defscenario-async "Refreshes full params dependency"
-  (go
-    (stub stub-1 [{:id 1} {:id 2}])
-    (is (= (-> {:data-1 {::data-source/fn #'echo-stub-1}
-                :data-2 {::data-source/fn #'refresh-params-when-id-1
-                         ::data-source/retries 2
-                         ::data-source/params ^::data-source/dep [:data-1]}}
-               sut/fill
-               (sut/select [:data-2])
-               exhaust
-               <!)
-           [{:path :data-1
-             :source {::data-source/deps #{}
-                      ::data-source/id ::echo-stub-1
-                      ::data-source/params {}}
-             :result {::result/success? true
-                      ::result/attempts 1
-                      ::result/data {:id 1}}}
-            {:path :data-2
-             :source {::data-source/deps #{:data-1}
-                      ::data-source/id ::refresh-params-when-id-1
-                      ::data-source/params {:id 1}
-                      ::data-source/retries 2}
-             :result {::result/success? false
-                      ::result/attempts 1
-                      ::result/data {:message "Oops!"}
-                      ::result/refresh #{::data-source/params}
-                      ::result/retrying? true}}
-            {:path :data-1
-             :source {::data-source/deps #{}
-                      ::data-source/id ::echo-stub-1
-                      ::data-source/params {}}
-             :result {::result/success? true
-                      ::result/attempts 2
-                      ::result/data {:id 2}}}
-            {:path :data-2
-             :source {::data-source/deps #{:data-1}
-                      ::data-source/id ::refresh-params-when-id-1
-                      ::data-source/params {:id 2}
-                      ::data-source/retries 2}
-             :result {::result/success? true
-                      ::result/attempts 2
-                      ::result/data {:id 2}}}]))))
-
-(defscenario-async "Collects results"
-  (go
-    (stub stub-1 [{:id 1} {:id 2}])
-    (let [result (-> {:data-1 {::data-source/fn #'echo-stub-1}
+  (let [prescription {:data-1 {::data-source/fn #'echo-stub-1}
                       :data-2 {::data-source/fn #'refresh-id-when-1
                                ::data-source/retries 2
-                               ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
-                     sut/fill
-                     (sut/select [:data-2])
-                     sut/collect
-                     <!)]
-      (is (= (dissoc result ::result/sources)
-             {::result/success? true
-              ::result/data {:data-1 {:id 2}
-                             :data-2 {:id 2}}}))
-      (is (= 4 (count (::result/sources result)))))))
+                               ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}]
+    (go
+      (stub stub-1 [{:id 1} {:id 2}])
+      (is (= (<! (exhaust (sut/select (sut/fill prescription) [:data-2])))
+             [{:path :data-1
+               :source {::data-source/deps #{}
+                        ::data-source/id ::echo-stub-1
+                        ::data-source/params {}}
+               :result {::result/attempts 1
+                        ::result/data {:id 1}
+                        ::result/success? true}}
+              {:path :data-2
+               :source {::data-source/deps #{:data-1}
+                        ::data-source/id ::refresh-id-when-1
+                        ::data-source/params {:id 1}
+                        ::data-source/retries 2}
+               :result {::result/attempts 1
+                        ::result/data {:message "Oops!"}
+                        ::result/refresh #{:id}
+                        ::result/success? false
+                        ::result/retrying? true}}
+              {:path :data-1
+               :source {::data-source/deps #{}
+                        ::data-source/id ::echo-stub-1
+                        ::data-source/params {}}
+               :result {::result/attempts 2
+                        ::result/data {:id 2}
+                        ::result/success? true}}
+              {:path :data-2
+               :source {::data-source/deps #{:data-1}
+                        ::data-source/id ::refresh-id-when-1
+                        ::data-source/params {:id 2}
+                        ::data-source/retries 2}
+               :result {::result/attempts 2
+                        ::result/data {:id 2}
+                        ::result/success? true}}])))))
+
+(defscenario-async "Refreshes full params dependency"
+  (let [prescription {:data-1 {::data-source/fn #'echo-stub-1}
+                      :data-2 {::data-source/fn #'refresh-params-when-id-1
+                               ::data-source/retries 2
+                               ::data-source/params ^::data-source/dep [:data-1]}}]
+    (go
+      (stub stub-1 [{:id 1} {:id 2}])
+      (is (= (<! (exhaust (sut/select (sut/fill prescription) [:data-2])))
+             [{:path :data-1
+               :source {::data-source/deps #{}
+                        ::data-source/id ::echo-stub-1
+                        ::data-source/params {}}
+               :result {::result/success? true
+                        ::result/attempts 1
+                        ::result/data {:id 1}}}
+              {:path :data-2
+               :source {::data-source/deps #{:data-1}
+                        ::data-source/id ::refresh-params-when-id-1
+                        ::data-source/params {:id 1}
+                        ::data-source/retries 2}
+               :result {::result/success? false
+                        ::result/attempts 1
+                        ::result/data {:message "Oops!"}
+                        ::result/refresh #{::data-source/params}
+                        ::result/retrying? true}}
+              {:path :data-1
+               :source {::data-source/deps #{}
+                        ::data-source/id ::echo-stub-1
+                        ::data-source/params {}}
+               :result {::result/success? true
+                        ::result/attempts 2
+                        ::result/data {:id 2}}}
+              {:path :data-2
+               :source {::data-source/deps #{:data-1}
+                        ::data-source/id ::refresh-params-when-id-1
+                        ::data-source/params {:id 2}
+                        ::data-source/retries 2}
+               :result {::result/success? true
+                        ::result/attempts 2
+                        ::result/data {:id 2}}}])))))
+
+(defscenario-async "Collects results"
+  (let [prescription {:data-1 {::data-source/fn #'echo-stub-1}
+                      :data-2 {::data-source/fn #'refresh-id-when-1
+                               ::data-source/retries 2
+                               ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}]
+    (go
+      (stub stub-1 [{:id 1} {:id 2}])
+      (let [result (<! (sut/collect (sut/select (sut/fill prescription) [:data-2])))]
+        (is (= (dissoc result ::result/sources)
+               {::result/success? true
+                ::result/data {:data-1 {:id 2}
+                               :data-2 {:id 2}}}))
+        (is (= 4 (count (::result/sources result))))))))
 
 (defscenario-async "Collects partial data with failed overall success indicator"
-  (go
-    (stub stub-1 [{:id 1} {:id 2}])
-    (let [result (-> {:data-1 {::data-source/fn #'echo-stub-1}
+  (let [prescription {:data-1 {::data-source/fn #'echo-stub-1}
                       :data-2 {::data-source/fn #'refresh-id-when-1
-                               ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
-                     sut/fill
-                     (sut/select [:data-2])
-                     sut/collect
-                     <!)]
-      (is (= (dissoc result ::result/sources)
-             {::result/success? false
-              ::result/data {:data-1 {:id 1}}}))
-      (is (= 2 (count (::result/sources result)))))))
+                               ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}]
+    (go
+      (stub stub-1 [{:id 1} {:id 2}])
+      (let [result (<! (sut/collect (sut/select (sut/fill prescription) [:data-2])))]
+        (is (= (dissoc result ::result/sources)
+               {::result/success? false
+                ::result/data {:data-1 {:id 1}}}))
+        (is (= 2 (count (::result/sources result))))))))
 
-(defscenario "Collects final result into map of data, sync"
-  (is (= (::result/data
-          (<!!
-           (sut/collect
-            (sut/select
-             (sut/fill {:data-1 {::data-source/fn #'squared
-                                 ::data-source/params {:number 3}}
-                        :data-2 {::data-source/fn #'doubled
-                                 ::data-source/params {:number ^::data-source/dep [:data-1]}}})
-             [:data-2]))))
-         {:data-1 9
-          :data-2 18})))
+#?(:clj
+   (defscenario "Collects final result into map of data, sync"
+     (is (= (::result/data
+             (<!!
+              (sut/collect
+               (sut/select
+                (sut/fill {:data-1 {::data-source/fn #'squared
+                                    ::data-source/params {:number 3}}
+                           :data-2 {::data-source/fn #'doubled
+                                    ::data-source/params {:number ^::data-source/dep [:data-1]}}})
+                [:data-2]))))
+            {:data-1 9
+             :data-2 18}))))
 
 (defscenario-async "Retrieves cached result"
-  (go
-    (let [prescription {::data-source/fn #'echo-params}
-          cache (atom {(cache/cache-key prescription)
-                       {::result/success? true
-                        ::result/attempts 1
-                        ::result/data {:id 333}}})]
+  (let [prescription {::data-source/fn #'echo-params}
+        cache (atom {(cache/cache-key prescription)
+                     {::result/success? true
+                      ::result/attempts 1
+                      ::result/data {:id 333}}})]
+    (go
       (is (= (<! (sut/select
                   (sut/fill {:data-1 prescription} (cache/atom-map cache))
                   [:data-1]))
@@ -621,17 +597,18 @@
                        ::result/cached? true}})))))
 
 (defscenario-async "Ignores cache when refreshing"
-  (go
+  (let [source {::data-source/fn #'echo-stub-1}
+        prescription {:data-1 source
+                      :data-2 {::data-source/fn #'refresh-id-when-1
+                               ::data-source/retries 2
+                               ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
+        cache (atom {(cache/cache-key source)
+                     {::result/success? true
+                      ::result/attempts 1
+                      ::result/data {:id 1}}})]
     (stub stub-1 [{:id 666}])
-    (let [prescription {::data-source/fn #'echo-stub-1}
-          cache (atom {(cache/cache-key prescription)
-                       {::result/success? true
-                        ::result/attempts 1
-                        ::result/data {:id 1}}})]
-      (is (= (-> {:data-1 prescription
-                  :data-2 {::data-source/fn #'refresh-id-when-1
-                           ::data-source/retries 2
-                           ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
+    (go
+      (is (= (-> prescription
                  (sut/fill (cache/atom-map cache))
                  (sut/select [:data-2])
                  exhaust
@@ -671,20 +648,17 @@
                         ::result/success? true}}])))))
 
 (defscenario-async "Retrieves cached result by resolved params"
-  (go
-    (let [cache (atom {(cache/cache-key {::data-source/fn #'echo-params
-                                         ::data-source/params {:dep 42}})
-                       {::result/success? true
-                        ::result/attempts 1
-                        ::result/data {:id 333}}})]
-      (is (= (<! (exhaust
-                  (sut/select
-                   (sut/fill {:data-1 {::data-source/fn #'echo-params
-                                       ::data-source/params {:dep ^::data-source/dep [:data-2 :id]}}
-                              :data-2 {::data-source/fn #'echo-params
-                                       ::data-source/params {:id 42}}}
-                             (cache/atom-map cache))
-                   [:data-1])))
+  (let [cache (atom {(cache/cache-key {::data-source/fn #'echo-params
+                                       ::data-source/params {:dep 42}})
+                     {::result/success? true
+                      ::result/attempts 1
+                      ::result/data {:id 333}}})
+        prescription {:data-1 {::data-source/fn #'echo-params
+                               ::data-source/params {:dep ^::data-source/dep [:data-2 :id]}}
+                      :data-2 {::data-source/fn #'echo-params
+                               ::data-source/params {:id 42}}}]
+    (go
+      (is (= (<! (exhaust (sut/select (sut/fill prescription (cache/atom-map cache)) [:data-1])))
              [{:path :data-2
                :source {::data-source/id ::echo-params
                         ::data-source/deps #{}
@@ -702,22 +676,22 @@
                         ::result/cached? true}}])))))
 
 (defscenario-async "Does not fetch dependency when depending param is not part of cache key"
-  (go
-    (let [prescription {::data-source/fn #'echo-params
-                        ::data-source/cache-deps #{:id}
-                        ::data-source/params {:id 1
-                                              :dep ^::data-source/dep [:data-2 :id]}}
-          cache (atom {(cache/cache-key prescription)
-                       {::result/success? true
-                        ::result/attempts 1
-                        ::result/data {:id 333}}})]
-      (is (= (<! (exhaust
-                  (sut/select
-                   (sut/fill {:data-1 prescription
-                              :data-2 {::data-source/fn #'echo-params
-                                       ::data-source/params {:id 42}}}
-                             (cache/atom-map cache))
-                   [:data-1])))
+  (let [prescription {::data-source/fn #'echo-params
+                      ::data-source/cache-deps #{:id}
+                      ::data-source/params {:id 1
+                                            :dep ^::data-source/dep [:data-2 :id]}}
+        cache (atom {(cache/cache-key prescription)
+                     {::result/success? true
+                      ::result/attempts 1
+                      ::result/data {:id 333}}})]
+    (go
+      (is (= (-> {:data-1 prescription
+                  :data-2 {::data-source/fn #'echo-params
+                           ::data-source/params {:id 42}}}
+                 (sut/fill (cache/atom-map cache))
+                 (sut/select [:data-1])
+                 exhaust
+                 <!)
              [{:path :data-1
                :source {::data-source/id ::echo-params
                         ::data-source/params {:id 1 :dep [:data-2 :id]}
@@ -727,67 +701,68 @@
                         ::result/cached? true
                         ::result/data {:id 333}}}])))))
 
-(defscenario-async "caches data when successful"
-  (go
-    (let [cache (atom {})]
-      (-> {:data-1 {::data-source/fn #'echo-params
-                    ::data-source/params {:id 43}}}
-          (sut/fill (cache/atom-map cache))
-          (sut/select [:data-1])
-          <!)
-      (<! (timeout 10))
-      (is (= (-> @cache vals first (dissoc ::cache/cached-at))
-             {::result/success? true
-              ::result/attempts 1
-              ::result/data {:id 43}})))))
+#?(:clj
+   (defscenario-async "caches data when successful"
+     (go
+       (let [cache (atom {})]
+         (-> {:data-1 {::data-source/fn #'echo-params
+                       ::data-source/params {:id 43}}}
+             (sut/fill (cache/atom-map cache))
+             (sut/select [:data-1])
+             <!)
+         (<! (timeout 10))
+         (is (= (-> @cache vals first (dissoc ::cache/cached-at))
+                {::result/success? true
+                 ::result/attempts 1
+                 ::result/data {:id 43}}))))))
 
-(defscenario-async "does not cache unsuccessful data"
-  (go
-    (stub stub-2 [(result/failure {:message "Oops!"})])
-    (let [cache (atom {})]
-      (-> {:data-1 {::data-source/fn #'echo-stub-2}}
-          (sut/fill (cache/atom-map cache))
-          (sut/select [:data-1])
-          <!)
-      (<! (timeout 10))
-      (is (= @cache {})))))
+#?(:clj
+   (defscenario-async "does not cache unsuccessful data"
+     (go
+       (stub stub-2 [(result/failure {:message "Oops!"})])
+       (let [cache (atom {})]
+         (-> {:data-1 {::data-source/fn #'echo-stub-2}}
+             (sut/fill (cache/atom-map cache))
+             (sut/select [:data-1])
+             <!)
+         (<! (timeout 10))
+         (is (= @cache {}))))))
 
 (defscenario-async "does not re-cache data"
-  (go
-    (let [prescription {::data-source/fn #'echo-params
-                        ::data-source/cache-deps #{:id}
-                        ::data-source/params {:id 1
-                                              :dep ^::data-source/dep [:data-2 :id]}}
-          cache-key (cache/cache-key prescription)
-          cache (atom {cache-key
-                       {::result/success? true
-                        ::result/attempts 1
-                        ::result/data {:id 333}
-                        ::cache/cached-at 1548695867223}})]
-      (<! (exhaust
-           (sut/select
-            (sut/fill {:data-1 prescription
-                       :data-2 {::data-source/id ::echo-params
-                                ::data-source/params {:id 42}}}
-                      (cache/atom-map cache))
-            [:data-1])))
+  (let [prescription {::data-source/fn #'echo-params
+                      ::data-source/cache-deps #{:id}
+                      ::data-source/params {:id 1
+                                            :dep ^::data-source/dep [:data-2 :id]}}
+        cache-key (cache/cache-key prescription)
+        cache (atom {cache-key
+                     {::result/success? true
+                      ::result/attempts 1
+                      ::result/data {:id 333}
+                      ::cache/cached-at 1548695867223}})]
+    (go
+      (<! (-> {:data-1 prescription
+               :data-2 {::data-source/id ::echo-params
+                        ::data-source/params {:id 42}}}
+              (sut/fill (cache/atom-map cache))
+              (sut/select [:data-1])
+              exhaust))
       (is (= (::cache/cached-at (get @cache cache-key)) 1548695867223)))))
 
 (defscenario-async "Uses cache-params like cache-deps, and to shape cache key"
-  (go
-    (let [prescription {::data-source/fn #'echo-params
-                        ::data-source/cache-params #{[:blob :id] [:blob :name]}
-                        ::data-source/params {:blob ^::data-source/dep [:data-3]}}
-          cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "Something"}]
-                       {::result/success? true
-                        ::result/data {:something "Cached"}}})]
+  (let [prescription {::data-source/fn #'echo-params
+                      ::data-source/cache-params #{[:blob :id] [:blob :name]}
+                      ::data-source/params {:blob ^::data-source/dep [:data-3]}}
+        cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "Something"}]
+                     {::result/success? true
+                      ::result/data {:something "Cached"}}})]
+    (go
       (stub stub-1 [{:id 1337 :name "Something"}])
-      (is (= (<! (exhaust
-                  (sut/select
-                   (sut/fill {:data-1 prescription
-                              :data-3 {::data-source/fn #'echo-stub-1}}
-                             (cache/atom-map cache))
-                   [:data-1])))
+      (is (= (-> {:data-1 prescription
+                  :data-3 {::data-source/fn #'echo-stub-1}}
+                 (sut/fill (cache/atom-map cache))
+                 (sut/select [:data-1])
+                 exhaust
+                 <!)
              [{:path :data-3
                :source {::data-source/id ::echo-stub-1
                         ::data-source/deps #{}
@@ -805,23 +780,23 @@
                         ::result/data {:something "Cached"}}}])))))
 
 (defscenario-async "Fetches only the cache deps and looks for cached data until loading all deps"
-  (go
-    (let [prescription {::data-source/fn #'echo-params
-                        ::data-source/cache-params #{[:blob :id] [:blob :name]}
-                        ::data-source/params {:blob ^::data-source/dep [:data-3]
-                                              :dep ^::data-source/dep [:data-2 :id]}}
-          cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "Something"}]
-                       {::result/success? true
-                        ::result/data {:something "Cached"}}})]
+  (let [prescription {::data-source/fn #'echo-params
+                      ::data-source/cache-params #{[:blob :id] [:blob :name]}
+                      ::data-source/params {:blob ^::data-source/dep [:data-3]
+                                            :dep ^::data-source/dep [:data-2 :id]}}
+        cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "Something"}]
+                     {::result/success? true
+                      ::result/data {:something "Cached"}}})]
+    (go
       (stub stub-1 [{:id 1337 :name "Something"}])
-      (is (= (<! (exhaust
-                  (sut/select
-                   (sut/fill {:data-1 prescription
-                              :data-2 {::data-source/fn #'echo-params}
-                              :data-3 {::data-source/fn #'echo-stub-1
-                                       ::data-source/params {:id 42}}}
-                             (cache/atom-map cache))
-                   [:data-1])))
+      (is (= (-> {:data-1 prescription
+                  :data-2 {::data-source/fn #'echo-params}
+                  :data-3 {::data-source/fn #'echo-stub-1
+                           ::data-source/params {:id 42}}}
+                 (sut/fill (cache/atom-map cache))
+                 (sut/select [:data-1])
+                 exhaust
+                 <!)
              [{:path :data-3
                :source {::data-source/id ::echo-stub-1
                         ::data-source/params {:id 42}
@@ -840,26 +815,27 @@
                         ::result/data {:something "Cached"}}}])))))
 
 (defscenario-async "Goes deep before it goes wide"
-  (go
-    (let [prescription {::data-source/fn #'echo-params
-                        ::data-source/cache-params #{[:blob :id] [:blob :name]}
-                        ::data-source/params {:blob ^::data-source/dep [:data-3]
-                                              :dep ^::data-source/dep [:data-2 :id]}}
-          cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "New source"}]
-                       {::result/success? true
-                        ::result/data {:something "Cached"}}})]
+  (let [prescription {::data-source/fn #'echo-params
+                      ::data-source/cache-params #{[:blob :id] [:blob :name]}
+                      ::data-source/params {:blob ^::data-source/dep [:data-3]
+                                            :dep ^::data-source/dep [:data-2 :id]}}
+        data-3 {::data-source/fn #'echo-params
+                ::data-source/params {:id ^::data-source/dep [:data-4 :id]
+                                      :name "New source"}}
+        cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "New source"}]
+                     {::result/success? true
+                      ::result/data {:something "Cached"}}})]
+    (go
       (stub stub-1 [{:id 1337 :name "Something"}])
-      (is (= (<! (exhaust
-                  (sut/select
-                   (sut/fill {:data-1 prescription
-                              :data-2 {::data-source/fn #'echo-params}
-                              :data-3 {::data-source/fn #'echo-params
-                                       ::data-source/params {:id ^::data-source/dep [:data-4 :id]
-                                                             :name "New source"}}
-                              :data-4 {::data-source/fn #'echo-stub-1
-                                       ::data-source/params {:id 42}}}
-                             (cache/atom-map cache))
-                   [:data-1])))
+      (is (= (-> {:data-1 prescription
+                  :data-2 {::data-source/fn #'echo-params}
+                  :data-3 data-3
+                  :data-4 {::data-source/fn #'echo-stub-1
+                           ::data-source/params {:id 42}}}
+                 (sut/fill (cache/atom-map cache))
+                 (sut/select [:data-1])
+                 exhaust
+                 <!)
              [{:path :data-4
                :source {::data-source/id ::echo-stub-1
                         ::data-source/params {:id 42}
@@ -885,29 +861,30 @@
                         ::result/data {:something "Cached"}}}])))))
 
 (defscenario-async "Goes deep and resolves all dependencies to fetch uncached item"
-  (go
-    (let [prescription {::data-source/fn #'echo-params
-                        ::data-source/cache-params #{[:blob :id] [:blob :name]}
-                        ::data-source/params {:blob ^::data-source/dep [:data-3]
-                                              :dep ^::data-source/dep [:data-2 :id]}}
-          cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "Deep deps"}]
-                       {::result/success? true
-                        ::result/data {:something "Cached"}}})]
+  (let [prescription {::data-source/fn #'echo-params
+                      ::data-source/cache-params #{[:blob :id] [:blob :name]}
+                      ::data-source/params {:blob ^::data-source/dep [:data-3]
+                                            :dep ^::data-source/dep [:data-2 :id]}}
+        data-3 {::data-source/fn #'echo-params
+                ::data-source/cache-params #{[:id]}
+                ::data-source/params {:id ^::data-source/dep [:data-4 :id]
+                                      :name ^::data-source/dep [:data-5 :name]}}
+        cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "Deep deps"}]
+                     {::result/success? true
+                      ::result/data {:something "Cached"}}})]
+    (go
       (stub stub-1 [{:id 1337 :name "Something"}])
-      (is (= (<! (exhaust
-                  (sut/select
-                   (sut/fill {:data-1 prescription
-                              :data-2 {::data-source/fn #'echo-params}
-                              :data-3 {::data-source/fn #'echo-params
-                                       ::data-source/cache-params #{[:id]}
-                                       ::data-source/params {:id ^::data-source/dep [:data-4 :id]
-                                                             :name ^::data-source/dep [:data-5 :name]}}
-                              :data-4 {::data-source/fn #'echo-stub-1
-                                       ::data-source/params {:id 42}}
-                              :data-5 {::data-source/fn #'echo-params
-                                       ::data-source/params {:name "Deep deps"}}}
-                             (cache/atom-map cache))
-                   [:data-1])))
+      (is (= (-> {:data-1 prescription
+                  :data-2 {::data-source/fn #'echo-params}
+                  :data-3 data-3
+                  :data-4 {::data-source/fn #'echo-stub-1
+                           ::data-source/params {:id 42}}
+                  :data-5 {::data-source/fn #'echo-params
+                           ::data-source/params {:name "Deep deps"}}}
+                 (sut/fill (cache/atom-map cache))
+                 (sut/select [:data-1])
+                 exhaust
+                 <!)
              [{:path :data-4
                :source {::data-source/id ::echo-stub-1
                         ::data-source/params {:id 42}
@@ -940,25 +917,26 @@
                         ::result/data {:something "Cached"}}}])))))
 
 (defscenario-async "Handles full params deps in cache resolution"
-  (go
-    (let [prescription {::data-source/fn #'echo-params
-                        ::data-source/cache-params #{[:blob :id] [:blob :name]}
-                        ::data-source/params {:blob ^::data-source/dep [:data-3]
-                                              :dep ^::data-source/dep [:data-2 :id]}}
-          cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "Something"}]
-                       {::result/success? true
-                        ::result/data {:something "Cached"}}})]
+  (let [prescription {::data-source/fn #'echo-params
+                      ::data-source/cache-params #{[:blob :id] [:blob :name]}
+                      ::data-source/params {:blob ^::data-source/dep [:data-3]
+                                            :dep ^::data-source/dep [:data-2 :id]}}
+        data-3 {::data-source/fn #'echo-params
+                ::data-source/params ^::data-source/dep [:data-4]}
+        cache (atom {[::echo-params {[:blob :id] 1337, [:blob :name] "Something"}]
+                     {::result/success? true
+                      ::result/data {:something "Cached"}}})]
+    (go
       (stub stub-1 [{:id 1337 :name "Something"}])
-      (is (= (<! (exhaust
-                  (sut/select
-                   (sut/fill {:data-1 prescription
-                              :data-2 {::data-source/fn #'echo-params}
-                              :data-3 {::data-source/fn #'echo-params
-                                       ::data-source/params ^::data-source/dep [:data-4]}
-                              :data-4 {::data-source/fn #'echo-stub-1
-                                       ::data-source/params {:id 42}}}
-                             (cache/atom-map cache))
-                   [:data-1])))
+      (is (= (-> {:data-1 prescription
+                  :data-2 {::data-source/fn #'echo-params}
+                  :data-3 data-3
+                  :data-4 {::data-source/fn #'echo-stub-1
+                           ::data-source/params {:id 42}}}
+                 (sut/fill (cache/atom-map cache))
+                 (sut/select [:data-1])
+                 exhaust
+                 <!)
              [{:path :data-4
                :source {::data-source/id ::echo-stub-1
                         ::data-source/params {:id 42}
@@ -998,31 +976,32 @@
            {:data {:source1/some-attr "LOL"}}))))
 
 (defscenario-async "Passes coerced data as dependencies"
-  (go
-    (is (= (-> (sut/fill {:data {::data-source/fn #'echo-params
-                                 ::data-source/params {:some-attr "LOL"}
-                                 ::data-source/schema
-                                 {:source1/some-attr {::schema/source :some-attr}
-                                  ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
-                          :data2 {::data-source/fn #'echo-params
-                                  ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}})
-               (sut/select [:data2])
-               sut/collect
-               <!
-               ::result/data)
-           {:data {:source1/some-attr "LOL"}
-            :data2 {:input "LOL"}}))))
+  (let [prescription {:data {::data-source/fn #'echo-params
+                             ::data-source/params {:some-attr "LOL"}
+                             ::data-source/schema
+                             {:source1/some-attr {::schema/source :some-attr}
+                              ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
+                      :data2 {::data-source/fn #'echo-params
+                              ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}]
+    (go
+      (is (= (-> (sut/fill prescription)
+                 (sut/select [:data2])
+                 sut/collect
+                 <!
+                 ::result/data)
+             {:data {:source1/some-attr "LOL"}
+              :data2 {:input "LOL"}})))))
 
 (defscenario-async "Always gets coerced data from same filled prescription"
-  (go
-    (let [prescription {:data {::data-source/fn #'echo-params
-                               ::data-source/params {:some-attr "LOL"}
-                               ::data-source/schema
-                               {:source1/some-attr {::schema/source :some-attr}
-                                ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
-                        :data2 {::data-source/fn #'echo-params
-                                ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}
-          filled (sut/fill prescription)]
+  (let [prescription {:data {::data-source/fn #'echo-params
+                             ::data-source/params {:some-attr "LOL"}
+                             ::data-source/schema
+                             {:source1/some-attr {::schema/source :some-attr}
+                              ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
+                      :data2 {::data-source/fn #'echo-params
+                              ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}
+        filled (sut/fill prescription)]
+    (go
       (-> filled (sut/select [:data2]) sut/collect <!)
       (is (= (-> filled
                  (sut/select [:data2 :data])
@@ -1033,15 +1012,15 @@
               :data2 {:input "LOL"}})))))
 
 (defscenario-async "Returns coerced cached data"
-  (go
-    (let [opt (cache/atom-map (atom {}))
-          prescription {:data {::data-source/fn #'echo-params
-                               ::data-source/params {:some-attr "LOL"}
-                               ::data-source/schema
-                               {:source1/some-attr {::schema/source :some-attr}
-                                ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
-                        :data2 {::data-source/fn #'echo-params
-                                ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}]
+  (let [opt (cache/atom-map (atom {}))
+        prescription {:data {::data-source/fn #'echo-params
+                             ::data-source/params {:some-attr "LOL"}
+                             ::data-source/schema
+                             {:source1/some-attr {::schema/source :some-attr}
+                              ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
+                      :data2 {::data-source/fn #'echo-params
+                              ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}]
+    (go
       (<! (exhaust (sut/select (sut/fill prescription opt) [:data2])))
       (is (= (-> prescription
                  (sut/fill opt)
@@ -1061,15 +1040,16 @@
            []))))
 
 (defscenario-async "Yields no messages when selecting non-existent key with cache"
-  (go
-    (is (= (-> {:data {::data-source/fn #'echo-params}
-                :data2 {::data-source/fn #'echo-params
-                        ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}
-               (sut/fill (cache/atom-map (atom {})))
-               (sut/select [:non-existent])
-               exhaust
-               <!)
-           []))))
+  (let [prescription {:data {::data-source/fn #'echo-params}
+                      :data2 {::data-source/fn #'echo-params
+                              ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}]
+    (go
+      (is (= (-> prescription
+                 (sut/fill (cache/atom-map (atom {})))
+                 (sut/select [:non-existent])
+                 exhaust
+                 <!)
+             [])))))
 
 (defn get-facility-ids [{::data-source/keys [params]}]
   (result/success (:ids params)))
@@ -1161,9 +1141,7 @@
                        ::result/attempts 1}}}))))
 
 (defscenario-async "Loads nested sources shadowing dependencies"
-  (go
-    (is (= (into #{}
-                 (-> {:user {::data-source/fn #'echo-params
+  (let [prescription {:user {::data-source/fn #'echo-params
                              ::data-source/params {:id 13}}
 
                       :facility-id {::data-source/fn #'echo-params
@@ -1175,74 +1153,78 @@
 
                       :facilities {::data-source/coll-of :facility
                                    ::data-source/fn #'get-facility-ids
-                                   ::data-source/params {:ids [{:facility-id 1}]}}}
-                     sut/fill
-                     (sut/select [:facility :facilities])
-                     exhaust
-                     <!))
-           #{{:path :facility-id
-              :source {::data-source/id ::echo-params
-                       ::data-source/params {:id 1337}
-                       ::data-source/deps #{}}
-              :result {::result/success? true
-                       ::result/attempts 1
-                       ::result/data {:id 1337}}}
-             {:path :user
-              :source {::data-source/id ::echo-params
-                       ::data-source/params {:id 13}
-                       ::data-source/deps #{}}
-              :result {::result/success? true
-                       ::result/attempts 1
-                       ::result/data {:id 13}}}
-             {:path :facility
-              :source {::data-source/id ::echo-params
-                       ::data-source/params {:user {:id 13}
-                                             :facility-id 1337}
-                       ::data-source/deps #{:user :facility-id}}
-              :result {::result/success? true
-                       ::result/attempts 1
-                       ::result/data {:user {:id 13}
-                                      :facility-id 1337}}}
-             {:path :facilities
-              :source {::data-source/id ::get-facility-ids
-                       ::data-source/params {:ids [{:facility-id 1}]}
-                       ::data-source/coll-of :facility
-                       ::data-source/deps #{}}
-              :result {::result/success? true
-                       ::result/data [{:facility-id 1}]
-                       ::result/attempts 1}}
-             {:path [:facilities 0]
-              :source {::data-source/id ::echo-params
-                       ::data-source/params {:user {:id 13}
-                                             :facility-id 1}
-                       ::data-source/deps #{:user}}
-              :result {::result/success? true
-                       ::result/data {:user {:id 13}
-                                      :facility-id 1}
-                       ::result/attempts 1}}}))))
+                                   ::data-source/params {:ids [{:facility-id 1}]}}}]
+    (go
+      (is (= (into #{}
+                   (-> prescription
+                       sut/fill
+                       (sut/select [:facility :facilities])
+                       exhaust
+                       <!))
+             #{{:path :facility-id
+                :source {::data-source/id ::echo-params
+                         ::data-source/params {:id 1337}
+                         ::data-source/deps #{}}
+                :result {::result/success? true
+                         ::result/attempts 1
+                         ::result/data {:id 1337}}}
+               {:path :user
+                :source {::data-source/id ::echo-params
+                         ::data-source/params {:id 13}
+                         ::data-source/deps #{}}
+                :result {::result/success? true
+                         ::result/attempts 1
+                         ::result/data {:id 13}}}
+               {:path :facility
+                :source {::data-source/id ::echo-params
+                         ::data-source/params {:user {:id 13}
+                                               :facility-id 1337}
+                         ::data-source/deps #{:user :facility-id}}
+                :result {::result/success? true
+                         ::result/attempts 1
+                         ::result/data {:user {:id 13}
+                                        :facility-id 1337}}}
+               {:path :facilities
+                :source {::data-source/id ::get-facility-ids
+                         ::data-source/params {:ids [{:facility-id 1}]}
+                         ::data-source/coll-of :facility
+                         ::data-source/deps #{}}
+                :result {::result/success? true
+                         ::result/data [{:facility-id 1}]
+                         ::result/attempts 1}}
+               {:path [:facilities 0]
+                :source {::data-source/id ::echo-params
+                         ::data-source/params {:user {:id 13}
+                                               :facility-id 1}
+                         ::data-source/deps #{:user}}
+                :result {::result/success? true
+                         ::result/data {:user {:id 13}
+                                        :facility-id 1}
+                         ::result/attempts 1}}})))))
 
 (defscenario-async "Does not load shadowed deps in nested sources"
-  (go
-    (is (= (->> (-> {:user {::data-source/fn #'echo-params
-                            ::data-source/params {:id 13}}
+  (let [prescription {:user {::data-source/fn #'echo-params
+                             ::data-source/params {:id 13}}
 
-                     :facility-id {::data-source/fn #'echo-params
-                                   ::data-source/params {:id 1337}}
+                      :facility-id {::data-source/fn #'echo-params
+                                    ::data-source/params {:id 1337}}
 
-                     :facility {::data-source/fn #'echo-params
-                                ::data-source/params {:user ^::data-source/dep [:user]
-                                                      :facility-id ^::data-source/dep [:facility-id :id]}}
+                      :facility {::data-source/fn #'echo-params
+                                 ::data-source/params {:user ^::data-source/dep [:user]
+                                                       :facility-id ^::data-source/dep [:facility-id :id]}}
 
-                     :facilities {::data-source/coll-of :facility
-                                  ::data-source/fn #'get-facility-ids
-                                  ::data-source/params {:ids [{:facility-id 1}]}}}
-                    sut/fill
-                    (sut/select [:facilities])
-                    exhaust
-                    <!)
-                (map :path)
-                (into #{}))
-           #{:user :facilities [:facilities 0]}))))
+                      :facilities {::data-source/coll-of :facility
+                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/params {:ids [{:facility-id 1}]}}}]
+    (go
+      (is (= (->> (-> prescription
+                      sut/fill
+                      (sut/select [:facilities])
+                      exhaust
+                      <!)
+                  (map :path)
+                  (into #{}))
+             #{:user :facilities [:facilities 0]})))))
 
 (defscenario "Merges data from results"
   (is (= (sut/merge-results [{:path :id
