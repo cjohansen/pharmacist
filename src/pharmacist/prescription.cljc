@@ -355,6 +355,7 @@
 
 (defn merge-results [results]
   (->> results
+       (filter #(get-in % [:result ::result/success?] true))
        (map #(update % :path ->path))
        (sort-by #(-> % :path count))
        (reduce (fn [res {:keys [path result]}]
