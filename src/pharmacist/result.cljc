@@ -10,9 +10,10 @@
 (s/def ::data any?)
 (s/def ::attempts number?)
 (s/def ::retryable? boolean?)
+(s/def :pharmacist.cache/cached-at number?)
 
 (s/def ::result (s/keys :req [::success?]
-                        :opt [::data ::attempts ::retryable?]))
+                        :opt [::data ::attempts ::retryable? :pharmacist.cache/cached-at]))
 
 (s/def ::success?-args (s/cat :result ::result))
 
