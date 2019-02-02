@@ -324,124 +324,106 @@ token.
 Caching of data sources is primarily handled by two functions:
 
 ```clj
-(defn cache-get [path prescription])
+(defn get [path prescription])
 
-(defn cache-put [path prescription result])
+(defn put [path prescription result])
 ```
 
-`cached-get` attempts to get a cached copy of the data source. It will be passed
-the path to the source (e.g. `[::auth]` and `[::playlists]` in the above
-example), and the individual data source prescription with fully resolved
-`::data-source/params` (e.g. values will be filled in for inter-source
-dependencies). If this function returns a non-nil value, the value will be used
-in place of fetching the remote source, and `cache-put` will never be called.
+`get` attempts to get a cached copy of the data source. It will be passed the
+path to the source (e.g. `[::auth]` and `[::playlists]` in the above example),
+and the individual data source with fully resolved `::data-source/params` (e.g.
+values will be filled in for inter-source dependencies). If this function
+returns a non-nil value, the value will be used in place of fetching the remote
+source, and `put` will never be called.
 
 If the value does not exist in the cache, the data will be fetched from the
-source, and if successful, `cache-put` will be called with the same arguments as
-`cache-get`, along with the fetched result.
+source, and if successful, `put` will be called with the same arguments as
+`get`, along with the fetched result.
 
-You pass these functions to `fill`:
+You pass these functions to `fill` as the `:cache` parameter:
 
 ```clj
 (require '[clojure.string :as str]
          '[pharmacist.data-source :as data-source]
          '[pharmacist.prescription :as prescription])
 
-(defn cache-key [{::data-source/keys [id params]}]
-  [id params])
-
 (defn cache-get [cache path prescription]
-  (get @cache (cache-key prescription)))
+  (get @cache (data-source/cache-key prescription)))
 
 (defn cache-put [cache path prescription value]
-  (swap! cache assoc (cache-key prescription) value))
+  (swap! cache assoc (data-source/cache-key prescription) value))
 
 (def cache (atom {}))
 
 (prescription/fill
  prescription
- {:cache-get (partial cache-get cache)
-  :cache-put (partial cache-put cache)})
+ {:cache {:get (partial cache-get cache)
+          :put (partial cache-put cache)}})
 ```
 
 ### Cache keys
 
-As demonstrated above, you can generate whatever cache keys you want, but for
-the vast majority of cases, the `::data-source/id` of the prescription and some
-or all of the provided parameters will uniquely address the content fetched by a
-prescription. For this purpose, Pharmacist provides
-`pharmacist.cache/cache-key`, which takes a prescription and returns a key:
+As demonstrated above, you can rely on Pharmacist to generate cache keys for
+you - the default implementation will combine `::data-source/id` with all
+`::data-source/params` (after resolving dependencies) in a vector.
 
-```
-(def prescription
-  {:gremlins {::data-source/id :movie
-              ::data-source/params {:id 657}}})
-
-(pharmacist.cache/cache-key (:gremlins prescription)) ;;=> [:movie {:id 657}]
-```
-
-If a data source depends on the result of other sources for their parameters,
-the full set of parameters may be a huge piece of data not well suited as a
-cache key. In that is the case, you can implement `pharmacist.cache/cache-key`
-for your data source:
-
-```clj
-(require '[pharmacist.data-source :as data-source])
-
-(defmethod data-source/cache-key ::my-data-source [{::data-source/keys [params]}]
-  [:my-data-source (get-in params [:some-dep :id])])
-```
-
-### Cache keys and dependencies
-
-Before a prescription can be looked up in the cache, all of its parameters must
-be fully resolved - e.g. there may not be any pending dependencies. This means
+Because the cache key requires the fully resolved parameters, all of a source's
+parameters must be fully resolved before looking it up in the cache. This means
 that if you have a playlist data source like above, that depends on a token
 resource, then Pharmacist is unable to check the cache for a playlist until it's
 fetched a token, which is a little backwards. If the playlist is already cached
 and you don't need the token for anything else, there is no need to fetch the
 token at all.
 
-Pharmacist solves this problem with `pharmacist.data-source/cache-params`,
-another multi-method that returns the parameter keys required to build the cache
-key:
-
-```clj
-(defmethod data-source/cache-params :spotify/playlists [prescription]
-  [:id])
-```
-
-Now Pharmacist will know that only the `:id` is necessary to look for playlists
-in the cache, meaning that its cache key will be something like:
-
-```clj
-[:spotify/playlists {:id 42}]
-```
-
-If you now select for the `::playlists`, Pharmacist may skip the `::auth` data
-source entirely when the playlist in question exists in the cache:
+Pharmacist solves this problem with `:pharmacist.data-source/cache-params`, a
+vector of parameter paths (as in vectors you could pass to `get-in` etc)
+required to build the cache key:
 
 ```clj
 (require '[pharmacist.data-source :as data-source]
-         '[pharmacist.prescription :as p])
+         '[pharmacist.prescription :as p]
+         '[myapp.spotify :as spotify])
 
 (def prescription
-  {::auth {::data-source/id :spotify/auth
-           ::data-source/params {:spotify-api-user "username"
-                                 :spotify-api-password "password"}}
+  {::auth {::data-source/fn #'spotify/auth
+           ::data-source/params ^::data-source/dep [:config]}
 
-   ::playlists {::data-source/id :spotify/playlists
+   ::playlists {::data-source/fn #'spotify/playlists
                 ::data-source/params {:token ^::data-source/dep [::auth :access_token]
-                                      :id ^::data-source/dep [::playlist-id]}}})
+                                      :id ^::data-source/dep [::playlist-id]}
+                ::data-source/cache-params [[:id]]}})
 
 (-> prescription
     (p/fill {:params {::playlist-id 42}})
     (p/select [::playlists]))
 ```
 
+Now Pharmacist will know that only the `:id` is necessary to look for playlists
+in the cache, meaning that its cache key will be something like:
+
+```clj
+[:spotify/playlists {[:id] 42}]
+```
+
+If you now select for the `::playlists`, Pharmacist may skip the `::auth` data
+source entirely when the playlist in question exists in the cache.
+
+`:pharmacist.data-source/cache-params` can also be used to reduce the amount of
+data that make up cache keys. Parameters can sometimes be huge maps, and
+typically only a few keys, or even a single key, like `:id`, is enough to adress
+the source. You can use paths to reduce the amount of data that goes into the
+cache key:
+
+```clj
+{::data-source/fn #'spotify/playlists
+ ::data-source/params {:token ^::data-source/dep [::auth :access_token]
+                       :user ^::data-source/dep [::user]}
+ ::data-source/cache-params [[:user :id]]}
+```
+
 ### Atoms with map caches
 
-Because *map-in-atom* is such a versatile caching strategy (it will work with
+Because maps in atoms is such a versatile caching strategy (it will work with
 plain maps and atoms, as well as atoms containing any of Clojure's `core.cache`
 types), Pharmacist provides a convenience function for them:
 
@@ -449,7 +431,7 @@ types), Pharmacist provides a convenience function for them:
 (require '[pharmacist.prescription :as prescription]
          '[pharmacist.cache :as cache])
 
-(prescription/fill prescription (cache/atom-map (atom {})))
+(prescription/fill prescription {:cache (cache/atom-map (atom {}))})
 ```
 
 Combine this with the `core.cache` TTL cache to cache all data for one hour:
@@ -461,116 +443,104 @@ Combine this with the `core.cache` TTL cache to cache all data for one hour:
 
 (prescription/fill
  prescription
- (pc/atom-map (atom (cache/ttl-cache-factory {} :ttl (* 60 60 1000)))))
+ {:cache (pc/atom-map (atom (cache/ttl-cache-factory {} :ttl (* 60 60 1000))))})
 ```
 
 **NB!** This approach caches everything the same way. If you need more control,
 provide functions that dispatch on `path`, `::data-source/id`, or even
-individual results. Note that the caching functions are passed the full
-prescription, meaning that you could annotate it with information about how long
-different types of data should be cached etc. You can also set `:ttl`,
-`:expires-at` or similar on your sources and/or fetch results, and use these in
-your cache get/put functions.
+individual results. The caching functions are passed the full source, meaning
+that you could annotate it with information about how long different types of
+data should be cached etc. You can also set `:ttl`, `:expires-at` or similar on
+your sources and/or fetch results, and use these in your cache get/put
+functions.
 
 When using `atom-map` cache, you can control which params are used for cache
-keys by implementing `pharmacist.data-source/cache-params`:
-
-```clj
-(require '[pharmacist.data-source :as data-source])
-
-(defmethod data-source/cache-params :my-source [prescription]
-  [:id :country])
-```
-
-If the type of data source and (some of) its parameters is not a good enough
-cache key, implement `pharmacist.data-source/cache-key` to provide a custom key:
-
-```clj
-(require '[pharmacist.data-source :as data-source])
-
-(defmethod data-source/cache-key :my-source [prescription]
-  [:custom-path (::my-app/cache-meta prescription)])
-```
+keys with `:pharmacist.data-source/cache-params` as described above.
 
 ## Mapping and coercion
 
 When consuming external data, we might want to map the keys and coerce the types
 of the result set to better fit our world-view. Mapping and type-coercion is
 handled by Pharmacist schemas, which can also be used to generate specs,
-validate payloads, and generate Datascript schemas.
+validate payloads, and generate
+[Datascript](https://github.com/tonsky/datascript) schemas.
 
 A schema specifies what parts of a data source result to extract, what data
 types to expect (enforcable through dev-time asserts), how to coerce data, and
-how to map names. It also serves as documentation of an external source of data:
+how to map names. It also serves as documentation of the parts of an external
+source of data your app is concerned with:
 
 ```clj
-(require '[pharmacist.schema :as schema :refer [defschema]]
-         '[clojure.spec.alpha :as s])
+(def playlist
+  {::data-source/fn #'spotify/playlists
+   ::data-source/params {:token ^::data-source/dep [::auth :access_token]
+                         :id ^::data-source/dep [::playlist-id]}
+   ::data-source/schema
+   {:image/url {::schema/spec string? ;; 1
+                ::schema/source :url} ;; 2
+    :image/width {::schema/spec int?
+                  ::schema/source :width
+                  ::schema/coerce parse-int} ;; 3
+    :image/height {::schema/spec int?
+                   ::schema/source :height}
 
-(defschema :spotify/playlist :playlist/entity ;; 1
-  :image/url {::schema/spec string? ;; 2
-              ::schema/source :url} ;; 3
-  :image/width {::schema/spec int?
-                ::schema/source :width
-                ::schema/coerce schema/parse-int} ;; 4
-  :image/height {::schema/spec int?
-                 ::schema/source :height}
-
-  :playlist/id {::schema/unique ::schema/identity
-                ::schema/source schema/infer-ns} ;; 5
-  :playlist/collaborative {::schema/spec boolean?
-                           ::schema/source :collaborative}
-  :playlist/title {::schema/spec string?
-                   ::schema/source :name} ;; 6
-  :playlist/image {::schema/spec (s/keys :req [:image/url :image/width :image/height])} ;; 7
-  :playlist/images {::schema/spec (s/coll-of :playlist/image)
-                    ::schema/source :images} ;; 8
-  :playlist/entity {::schema/spec (s/keys :req [:playlist/id
-                                                :playlist/collaborative
-                                                :playlist/title
-                                                :playlist/images])})
+    :playlist/id {::schema/unique ::schema/identity
+                  ::schema/source schema/infer-ns} ;; 4
+    :playlist/collaborative {::schema/spec boolean?
+                             ::schema/source :collaborative}
+    :playlist/title {::schema/spec string?
+                     ::schema/source :name} ;; 5
+    :playlist/image {::schema/spec (s/keys :req [:image/url :image/width :image/height])} ;; 6
+    :playlist/images {::schema/spec (s/coll-of :playlist/image)
+                      ::schema/source :images} ;; 7
+    ::schema/entity {::schema/spec (s/keys :req [:playlist/id ;; 8
+                                                 :playlist/collaborative
+                                                 :playlist/title
+                                                 :playlist/images])}}})
 ```
 
-1. Define a schema to use for `{::data-source/id :spotify/playlist}` sources,
-   and use the `:playlist/entity` spec as the root mapper.
-2. A `clojure.spec.alpha` spec for `:image/url`. Provides documentation, and can
+1. A `clojure.spec.alpha` spec for `:image/url`. Provides documentation, and can
    be used with asserts during development to verify assumptions about external
    data.
-3. When consuming external data, it is often nice to be able to map keys to
+2. When consuming external data, it is often nice to be able to map keys to
    idiomatic Clojure names, or, as in this case, to provide a namespace for the
    key. This instructs Pharmacist to populate the `:image/url` key in the
-   resulting data from the `:id` attribute of the source data.
-4. `::schema/coerce` can be set to any function that takes a single argument -
+   resulting data from the `:url` attribute of the source data.
+3. `::schema/coerce` can be set to any function that takes a single argument -
    the value to coerce - and returns a coerced value. If you are enforcing specs
    during development, the coercer should produce a value that is compatible
    with the spec.
-5. Some key mappings can be mechanically inferred. Pharmacist provides
+4. Some key mappings can be mechanically inferred. Pharmacist provides
    convenience functions for inferral, e.g. `schema/infer-ns` infers a
    namespaced key from its bare counterpart. In this case, `:playlist/id` will
    be populated from `:id`. The `::schema/source` function is called with a map
    and a key.
-6. Remote keys can be completely renamed as well. This shows an example of
+5. Remote keys can be completely renamed as well. This shows an example of
    mapping `:name` in the API payload to `:playlist/title` in our local data.
-7. Key specs inform Pharmacist to look up and map nested data structures
-8. Collection specs inform Pharmacist to loop through `:images` in the payload
+6. Key specs inform Pharmacist to look up and map nested data structures
+7. Collection specs inform Pharmacist to loop through `:images` in the payload
    and map each one with the keys in the `:playlist/image` key spec.
+8. By convention, the schema is expected to define `:pharmacist.schema/entity`
+   as either a map or collection spec, and this key is used to map the root
+   data. If this convention does not suit your needs, you can implement
+   `pharmacist.schema/coerce-data` and provide another root spec, see the API
+   docs.
 
-With this schema in place, data from the `::data-source/id :spotify/playlist`
-data source will be automatically mapped when you call
-`prescription/fill`/`prescription/fill-sync`. You can further utilize this
-schema if you want:
+With this schema in place, data from this source will be automatically mapped
+when you call `prescription/fill`. You can further utilize this schema if you
+want:
 
 ```clj
 (require '[pharmacist.schema :as schema])
 
 ;; Define global specs
-(schema/define-specs! :spotify/playlists)
+(schema/define-specs! playlist)
 
 ;; Assert that payloads match specs in schema
-(schema/assert-payloads! :spotify/playlists)
+(schema/assert-payloads! playlist)
 
 ;; Datascript schema
-(def ds-schema (schema/datascript-schema :spotify/playlists))
+(def ds-schema (schema/datascript-schema playlist))
 ```
 
 The asserts generated by `assert-payloads!` are `clojure.spec.alpha/assert`, and
@@ -584,18 +554,17 @@ fetch. Linked resources from a REST API would be one such example. Because it
 can be hard to predict upfront how many there will be, it's hard to formulate
 this in a prescription. It is fully possible to perform multiple HTTP requests
 within the same data source, but it is not recommended, because you then opt out
-of the retry mechanism and error handling in Pharmacist for each intermediary
-request.
+of the retry mechanism, caching, and error handling in Pharmacist for each
+intermediary request.
 
-To take advantage of Pharmacist's prescription filling abilities, a data source
-can include new prescriptions in its result. If the result is a
-`::result/success?`, Pharmacist will queue up any new prescriptions from the
-`::result/prescriptions` key among the remaining sources. These new
-prescriptions can depend on exsiting prescriptions like any other. The resulting
-data will have paths prefixed with the parent source's path key.
+To take advantage of Pharmacist's prescription filling abilities for an unknown
+number of child resources, you can define a collection data source. The
+collection data source includes a reference to another data source to apply to
+its children, and then its result is either a vector of parameters to pass to
+the data source, or a map of paths to parameters to the child resource.
 
-For an example, let's fetch some data from an HTTP endpoint, and then
-recursively look up linked resources.
+To demonstrate this with an example, let's fetch some data from an HTTP
+endpoint, and then recursively look up linked resources.
 [ghibliapi.herokuapp.com](https://ghibliapi.herokuapp.com) provides metadata on
 Studio Ghibli movies. The payload for a Ghibli movie includes hypermedia links
 to the people in the movie:
@@ -631,145 +600,158 @@ to the people in the movie:
 ```
 
 We can use Pharmacist to recursively pull down this structure. We'll start with
-a data source for movies, and one for people, along with a simple schema for
-each.
+functions to fetch movies and people:
 
 ```clj
 (require '[pharmacist.data-source :as data-source]
-         '[pharmacist.schema :as schema :refer [defschema]])
+         '[clj-http.client :as http])
 
-(defn- prepare-prescriptions [body]
-  (->> (:people body)
-       (map-indexed (fn [idx url]
-                      [[:movie/people idx]
-                       {::data-source/id :ghibli/person
-                        ::data-source/params {:url url}}]))
-       (into {})))
+(defn ghibli-film [{::data-source/keys [params]}]
+  (let [res (http/get (str "https://ghibliapi.herokuapp.com/films/" (:id params))
+                      {:throw-exceptions false})]
+    (if (http/success? res)
+      (result/success (:body res))
+      (result/failure {:error "Failed to fetch playlists"}))))
 
-(defmethod data-source/fetch :ghibli/film [prescription]
-  (let [ch (chan)]
-    (http/get
-     (str "https://ghibliapi.herokuapp.com/films/"
-          (-> prescription ::data-source/params :id))
-     {:async? true}
-     #(put! ch (result/success (:body %) (prepare-prescriptions (:body %))))
-     #(put! ch (result/failure {:error "Failed to fetch playlists"})))
-    ch))
-
-(defschema :ghibli/film
-  :movie/id {::schema/unique ::schema/identity
-             ::schema/spec uuid?
-             ::schema/coerce uuid
-             ::schema/source :id}
-  :movie/title {::schema/spec string?
-                ::schema/source :title}
-  :movie/description {::schema/spec string?
-                      ::schema/source :description}
-  :movie/release-date {::schema/spec string?
-                       ::schema/source :release_date})
-
-(defmethod data-source/fetch :ghibli/person [prescription]
-  (let [ch (chan)]
-    (http/get (str (-> prescription ::data-source/params :url))
-              {:async? true}
-              #(put! ch (response/success (:body %)))
-              #(put! ch (response/failure {:error "Failed to fetch playlists"})))
-    ch))
-
-(defschema :ghibli/person
-  :person/id {::schema/unique ::schema/identity
-              ::schema/spec uuid?
-              ::schema/coerce uuid
-              ::schema/source :id}
-  :person/name {::schema/spec string?
-                ::schema/source :name}
-  :person/age {::schema/spec number?
-               ::schema/source :age})
+(defn ghibli-person [{::data-source/keys [params]}]
+  (let [res (http/get (:url params)
+                      {:throw-exceptions false})]
+    (if (http/success? res)
+      (response/success (:body %))
+      (response/failure {:error "Failed to fetch person"}))))
 ```
 
-The `:ghibli/film` data source now includes prescriptions in its result. By
-default, Pharmacist will not recursively look up nested prescriptions, which
-means that you could still just fetch the movie with a prescription like this:
+In order to load all the people from a movie, we need a selection function that
+can decide _which_ exact people to fetch. We'll make one that just pulls all the
+ones from the movie:
+
+```clj
+(defn people-urls [{::data-source/keys [params]}]
+  (result/success (map (fn [url] {:url url}) (:movie/people params))))
+```
+
+These three functions can be stitched together with a prescription. First off,
+we'll define the movie and the person, with their schemas for coercion:
 
 ```clj
 (def prescription
-  {::totoro {::data-source/id :ghibli/film
-             ::data-source/params {:id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"}}})
+  {:movie
+   {::data-source/fn #'ghibli-film
+    ::data-source/params {:id ^::data-source/dep [:movie-id]}
+    ::data-source/schema
+    {:movie/id {::schema/unique ::schema/identity
+                ::schema/spec uuid?
+                ::schema/coerce uuid
+                ::schema/source :id}
+     :movie/title {::schema/spec string?
+                   ::schema/source :title}
+     :movie/description {::schema/spec string?
+                         ::schema/source :description}
+     :movie/release-date {::schema/spec string?
+                          ::schema/source :release_date}
+     :movie/people {::schema/spec (s/coll-of string?)}
+     ::schema/entity {::schema/spec (s/keys :req [:movie/id
+                                                  :movie/title
+                                                  :movie/description
+                                                  :movie/release-date
+                                                  :movie/people])}}}
+
+   :person
+   {::data-source/fn #'ghibli-person
+    ::data-source/params {:url ^::data-source/dep [:url]}
+    ::data-source/schema
+    {:person/id {::schema/unique ::schema/identity
+                 ::schema/spec uuid?
+                 ::schema/coerce uuid
+                 ::schema/source :id}
+     :person/name {::schema/spec string?
+                   ::schema/source :name}
+     :person/age {::schema/spec number?
+                  ::schema/source :age}
+     ::schema/entity {}}}})
 ```
 
-In order to fetch the people, you can adjust your prescription to inform
-Pharmacist which nested prescriptions you are interested in:
+Finally, the collection source:
 
 ```clj
 (def prescription
-  {::totoro {::data-source/id :ghibli/film
-             ::data-source/params {:id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"}
-             ::data-source/nested-prescriptions #{:ghibli/person}}})
+  {;;...
+   :people
+   {::data-source/fn #'people-urls
+    ::data-source/params ^::data-source/dep [:movie]
+    ::data-source/coll-of :person}})
+```
+
+Finally, let's fetch My Neighbour Totoro with all of its people:
+
+```clj
+(require '[pharmacist.prescription :as prescription])
+
+(-> prescription
+    (prescription/fill
+     {:params {:movie-id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"}})
+    (prescription/select [:people]))
 ```
 
 Now, when a person is fetched, your channel will receive a message like:
 
 ```clj
-{::result/path [::totoro :movie/people 1]
+{::result/path [:movie :movie/people 0]
  ::result/success? true
  ::result/data {:person/id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
                 :person/name "Satsuki Kusakabe"
                 :person/age "11"}}
 ```
 
-You can also tell Pharmacist to recursively fetch **all** nested prescriptions:
+You can combine all of these events into a single map using
+`pharmacist.prescription/merge-sources`:
 
 ```clj
-(require '[pharmacist.prescription :as prescription])
+(require '[pharmacist.prescription :as prescription]
+         '[clojure.core.async :as a])
 
-(prescription/fill prescription {:walk-nested-prescriptions? true})
+(let [ch (-> prescription
+             (prescription/fill
+              {:params {:movie-id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"}})
+             (prescription/select [:people]))
+      messages (a/go-loop [messages []]
+                 (when-let [message (a/<! ch)]
+                   (recur (conj messages message))))]
+  (prescription/merge-results messages)
+  ;;=>
+  {:movie {:movie/id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"
+           :movie/title "My Neighbour Totoro"
+           ;;...
+           :movie/people [{:person/id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
+                           :person/name "Satsuki Kusakabe"
+                           :person/age "11"}
+                          ;;...
+                          ]}})
 ```
 
-If you want to use the same prescription for different purposes and want to
-control what nested prescriptions to fill at call-time, you can tell `fill`
-which ones to recurse into:
+If you don't care about consuming the messages at your earliest convenience,
+`pharmacist.prescription/collect` can collect all of them for you:
 
 ```clj
-(require '[pharmacist.prescription :as prescription])
-
-(prescription/fill prescription {:nested-prescriptions #{:ghibli/people}})
+(-> prescription
+     (prescription/fill
+      {:params {:movie-id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"}})
+     (prescription/select [:people])
+     (prescription/collect))
 ```
 
-Finally, if you need to fetch only the first 10, or have other use cases that
-are hard to express declaratively, you can provide a function to make the call:
-
-```clj
-(require '[pharmacist.prescription :as prescription])
-
-(defn fill-nested [path result prescriptions]
-  (take 2 prescriptions))
-
-(prescription/fill prescription {:nested-prescriptions fill-nested})
-```
-
-For the example above, the `fill-nested` function would be called with
-`[::totoro]` as the path, the mapped and coerced result from the film data
-source as its `result`, and the vector with prescriptions. Its job is to return
-the list of prescriptions Pharmacist should recurse into.
+`collect` returns a channel that emits a single message, where `::result/data`
+is the result of passing all the messages through `merge-results`.
 
 # Synchronous fetches
 
-By default, Pharmacist will process your fetches asynchronously, even if you
-implement `pharmacist.data-source/fetch-sync`. If you are not in a context that
-plays nicely with asynchronicity, e.g. processing a ring request, there is a
-blocking fill that will return a result set to you instead of a channel:
+Pharmacist uses [core.async](https://github.com/clojure/core.async) for flow
+control, and as such you can get results synchronously using `<!!` - on the JVM.
+ClojureScript consumption must always be asynchronous.
 
-```clj
-(def res (p/fill-sync prescription))
-
-(when (result/succes? res)
-  (prn (::result/data res)))
-```
-
-`fill-sync` only works with synchronous data sources, e.g., ones that implement
-`pharmacist.data-source/fetch-sync`.
-
-The map returned by `fill-sync` may contain the following keys:
+In either case, you can pass the channel returned from `select` through
+`collect` to collect every message into a channel that emits them all in one go.
+The map contained in this message contains:
 
 #### `:pharmacist.result/success?`
 
@@ -777,7 +759,8 @@ A boolean indicating whether the entire data set was successfully loaded or not.
 
 #### `:pharmacist.result/data`
 
-A combined map of all successful results, like the one produced by `collect`.
+A combined map of all successful results, like the one produced by
+`merge-results`.
 
 #### `:pharmacist.result/sources`
 
@@ -786,20 +769,19 @@ of `:path`, `:source` (the initial prescription), and `:result` (the
 final result). In the event of an overall failure, the `:result` maps can tell
 you where things failed.
 
-In the following example, `:spotify/auth` failed, so `:spotify/playlist` (which
-requires the `:spotify/auth` token) is not only considered a failure - it wasn't
-even attempted:
+In the following example, `:auth` failed, so `:playlist` (which requires the
+`:auth` token) is not only considered a failure - it wasn't even attempted:
 
 ```clj
 {::result/success? false
  ::result/data {:prefs {:dark-mode? true}}
- ::result/sources [{:path [:prefs]
+ ::result/sources [{:path :prefs
                     :source {::data-source/id :user/prefs}
                     :result {::result/success? true
                              ::result/data {:dark-mode? true}
                              ::result/attempts 1}}
 
-                   {:path [:auth]
+                   {:path :auth
                     :source {::data-source/id :spotify/auth
                              ::data-source/params {:spotify-api-user "user"
                                                    :spotify-api-password "pass"}}
@@ -807,7 +789,7 @@ even attempted:
                              ::result/data {:error "Failed to authenticate user"}
                              ::result/attempts 3}}
 
-                   {:path [:playlists]
+                   {:path :playlists
                     :source {::data-source/id :spotify/playlists
                              ::data-source/params {:token ^::data-source/dep [:auth :access_token]}}
                     :result {::result/success? false
@@ -825,10 +807,10 @@ both expected to be provided by your application.
 (require '[pharmacist.data-source :as data-source]
          '[pharmacist.http :as http])
 
-(defmethod data-source/fetch :spotify/playlist [prescription]
+(defn spotify-playlist [{::data-source/keys [params]}]
   (http/http-data-source {:method :get
                           :url "https://api.spotify.com/playlists"
-                          :oauth-token (-> prescription ::data-source/params :token)}))
+                          :oauth-token (:token params)}))
 ```
 
 ## Reference
@@ -837,25 +819,33 @@ API docs will be available on cljdoc.org eventually.
 
 ### Prescriptions
 
+#### `:pharmacist.data-source/fn`
+
+The function that fetches data. Should return either a
+`pharmacist.result/success` or a `pharmacist.result/failure`.
+
+#### `:pharmacist.data-source/fn-async`
+
+The function that fetches data, asynchronously. Only used if
+`:pharmacist.data-source/fn` is not provided. Should return a core async channel
+that emits a single message which is either a `pharmacist.result/success` or a
+`pharmacist.result/failure`.
+
 #### `:pharmacist.data-source/id`
 
-ID that addresses a data source. Tells Pharmacist which data source to invoke
-for a prescription, and which schema to use for coercion and mapping.
+ID that addresses a data source. If not explicitly provided, it is inferred from
+`:pharmacist.data-source/fn` or `:pharmacist.data-source/async-fn`.
 
 #### `:pharmacist.data-source/params`
 
-Parameters passed from a prescription to a data source.
-
-#### `:pharmacist.data-source/retryable?`
-
-Whether or not a data source is retryable for this prescription. Defaults to
-`true`.
+Parameters passed from a prescription to a data source. Can be or include
+dependencies on initial parameters and other data sources.
 
 #### `:pharmacist.data-source/retries`
 
-How many times a data source should be retried in case of failure for a specific
-prescription. Defaults to `0`. If `:pharmacist.data-source/retryable?` is set to
-`false`, this value is ignored.
+How many times a data source should be retried in case of failure. Defaults to
+`0`. If `:pharmacist.result/retryable?` is set to `false`, this value is
+ignored.
 
 #### `:pharmacist.data-source/dep`
 
@@ -863,16 +853,7 @@ This keyword is set as meta data on parameters in
 `:pharmacist.data-source/params` to mark them as dependencies on other data
 sources.
 
-#### `:pharmacist.data-source/nested-prescriptions`
-
-A collection of data source ids that should be recursively loaded for this data
-source.
-
 ### Results
-
-#### `:pharmacist.result/path`
-
-The path of the data being loaded. A vector of keywords.
 
 #### `:pharmacist.result/success?`
 
@@ -889,22 +870,7 @@ The number of attempts made to load this specific piece of data.
 
 #### `:pharmacist.result/retryable?`
 
-A boolean indicating whether or not this failure result is retryable. Can be set
-when producing the result, to override `:pharmacist.data-source/retryable?` set
-on the prescription.
-
-#### `:pharmacist.result/retries`
-
-The number of times this failure result will be retried. For successful results,
-this will always be `0`.
-
-#### `:pharmacist.result/retrying?`
-
-A boolean indicating whether Pharmacist is going to retry the failed source.
-
-#### `:pharmacist.result/prescriptions`
-
-A collection of additional prescriptions that can be loaded for this resouce.
+A boolean indicating whether or not this failure result is retryable.
 
 <a id="spa"></a>
 # Example: Page data for a single-page application
@@ -928,30 +894,29 @@ flow.
 
 (def store (atom {}))
 
-(defmethod data-source/fetch-sync :spotify/auth [prescription]
+(defn spotify-auth [prescription]
   (if-let [token (:token @store)]
     (result/success {:token token})
     (result/failure)))
 
-(defmethod data-source/fetch :spotify/playlist [prescription]
-  (http/http-data-source {:method :get
-                          :url "https://api.spotify.com/playlists"
-                          :oauth-token (-> prescription ::data-source/params :token)}))
+(defn spotify-playlist [prescription]
+  (http/http-data-source
+   {:method :get
+    :url "https://api.spotify.com/playlists"
+    :oauth-token (-> prescription ::data-source/params :token)}))
 ```
-
-Note that the synchronous fetch implements `data-source/fetch-sync`.
 
 Here's the prescription:
 
 ```clj
 (def prescription
-  {::auth {::data-source/id :spotify/auth}
-   ::playlists {::data-source/id :spotify/playlists
+  {::auth {::data-source/fn #'spotify-auth}
+   ::playlists {::data-source/fn #'spotify-playlists
                 ::data-source/params {:token ^::data-source/dep [::auth :token]}}})
 ```
 
-We can now fetch this. If any of the sources fail, we'll assume there was an
-authentication problem, and redirect the user to login. In reality you'd
+We can now fetch data from this. If any of the sources fail, we'll assume there
+was an authentication problem, and redirect the user to login. In reality you'd
 probably want to check this more rigorously.
 
 ```clj
@@ -973,7 +938,9 @@ probably want to check this more rigorously.
        "&state=" state
        "&redirect_uri=" (js/encodeURIComponent (router/qualified-url :location/auth))))
 
-(let [ch (prescription/fill prescription)]
+(let [ch (-> prescription
+             prescription/fill
+             (prescription/select [::playlists]))]
   (a/go-loop [res {}]
     (when-let [msg (a/<! ch)]
       (if-not (result/success? msg)
