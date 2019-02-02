@@ -81,16 +81,16 @@
                         (map #(coerce schema % collection-type) coll))
       :default (lookup keyspec data k))))
 
-(defmulti coerce-data (fn [source data] (:pharmacist.data-source/id source)))
+(defmulti coerce-data
+  "Coerces `data` according to the spec in `source`. The default implementation
+  will use the schema in `:pharmacist.data-source/schema` and start coercion of
+  `data` from the `:pharmacist.schema/entity` key."
+  (fn [source data] (:pharmacist.data-source/id source)))
 
 (defmethod coerce-data :default [source data]
   (if-let [schema (:pharmacist.data-source/schema source)]
     (coerce schema data ::entity)
     data))
-
-(defn defschema [data-source-id root-spec & {:as schema}]
-  (defmethod coerce-data data-source-id [_ data]
-    (coerce schema data root-spec)))
 
 (def ^:private schema->ds {::identity :db.unique/identity})
 
@@ -105,19 +105,67 @@
       (or (seq (specced-keys spec))
           (seq (specced-keys coll-type))) (assoc :db/valueType :db.type/ref))))
 
-(defn datascript-schema [schema k]
-  (let [ks (->> schema
-                (map (fn [[k v]] [k (schema-keys k v)]))
-                (into {}))]
-    (->> (conj (keep coll-of (keys schema)) k)
-         (apply dissoc ks))))
+(defn datascript-schema
+  "Generate a Datascript schema from the Pharmacist schema. The resulting schema
+  will include keys for uniqueness, refs, and cardinality many. Any attributes
+  not using these features will be emitted with an empty map for documentation
+  purposes. The resulting schema can be passed directly to Datascript.
+
+  When this function is called with a source, it uses the schema in
+  `:pharmacist.data-source/schema`, and starts from the
+  `:pharmacist.schema/entity` key in the schema.
+
+  Alternatively, you can call the function with a schema, and a key (which must
+  exist in said schema)."
+  ([source] (datascript-schema (:pharmacist.data-source/schema source) ::entity))
+  ([schema k]
+   (let [ks (->> schema
+                 (map (fn [[k v]] [k (schema-keys k v)]))
+                 (into {}))]
+     (->> (conj (keep coll-of (keys schema)) k)
+          (apply dissoc ks)))))
 
 (defn- camel-cased [k]
   (let [[head & tail] (str/split k #"-")]
     (apply str head (map str/capitalize tail))))
 
-(defn infer-ns [m k]
+(defn infer-ns
+  "Utility to help namespace keys from external sources. Pass in data and a
+  namespaced key, and it will look up the unqualified key in the map to find the
+  data. This can be used to extract namespaced keys from unqualified data:
+
+```clojure
+(require '[pharmacist.schema :as schema]
+         '[clojure.spec.alpha :as s])
+
+(def schema
+  {:person/name {::schema/source schema/infer-ns}
+   ::schema/entity {::schema/spec (s/keys :req [:person/name])}})
+
+(def data {:name \"Wonderwoman\"})
+
+(schema/coerce schema data ::schema/entity)
+;;=> {:person/name \"Wonderwoman\"}
+```"
+  [m k]
   (get m (keyword (name k))))
 
-(defn infer-camel-ns [m k]
+(defn infer-camel-ns
+  "Like [infer-ns], but also infers dash cased keys from their camel cased
+  counterparts:
+
+```clojure
+(require '[pharmacist.schema :as schema]
+         '[clojure.spec.alpha :as s])
+
+(def schema
+  {:person/first-name {::schema/source schema/infer-camel-ns}
+   ::schema/entity {::schema/spec (s/keys :req [:person/first-name])}})
+
+(def data {:firstName \"Wonderwoman\"})
+
+(schema/coerce schema data ::schema/entity)
+;;=> {:person/first-name \"Wonderwoman\"}
+```"
+  [m k]
   (get m (keyword (camel-cased (name k)))))

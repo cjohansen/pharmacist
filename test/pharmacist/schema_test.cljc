@@ -163,18 +163,19 @@
            {:person/name :kermit
             :person/friends [{:person/name :piggy}]}))))
 
-(deftest defschema-coerce-data-test
+(deftest coerce-data-source-test
   (testing "Leaves data untouched if no schema is defined"
     (is (= (sut/coerce-data {::data-source/id :spotify/playlist} {:id 42})
            {:id 42})))
 
   (testing "Coerces data with provided schema"
-    (sut/defschema :test/muppet :muppet/entity
-      :muppet/name {::sut/spec string?
-                    ::sut/source :name}
-      :muppet/entity {::sut/spec (s/keys :req [:muppet/name])})
-    (is (= (sut/coerce-data {::data-source/id :test/muppet} {:name "Animal"})
-           {:muppet/name "Animal"}))))
+    (let [schema {:muppet/name {::sut/spec string?
+                                ::sut/source :name}
+                  ::sut/entity {::sut/spec (s/keys :req [:muppet/name])}}]
+      (is (= (sut/coerce-data {::data-source/id :test/muppet
+                               ::data-source/schema schema}
+                              {:name "Animal"})
+             {:muppet/name "Animal"})))))
 
 (deftest datascript-schema-test
   (testing "Exports datascript schema"
