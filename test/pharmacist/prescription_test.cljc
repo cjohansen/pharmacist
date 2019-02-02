@@ -579,7 +579,7 @@
 
 (defscenario-async "Retrieves cached result"
   (let [prescription {::data-source/fn #'echo-params}
-        cache (atom {(cache/cache-key prescription)
+        cache (atom {(data-source/cache-key prescription)
                      {::result/success? true
                       ::result/attempts 1
                       ::result/data {:id 333}}})]
@@ -602,7 +602,7 @@
                       :data-2 {::data-source/fn #'refresh-id-when-1
                                ::data-source/retries 2
                                ::data-source/params {:id ^::data-source/dep [:data-1 :id]}}}
-        cache (atom {(cache/cache-key source)
+        cache (atom {(data-source/cache-key source)
                      {::result/success? true
                       ::result/attempts 1
                       ::result/data {:id 1}}})]
@@ -648,7 +648,7 @@
                         ::result/success? true}}])))))
 
 (defscenario-async "Retrieves cached result by resolved params"
-  (let [cache (atom {(cache/cache-key {::data-source/fn #'echo-params
+  (let [cache (atom {(data-source/cache-key {::data-source/fn #'echo-params
                                        ::data-source/params {:dep 42}})
                      {::result/success? true
                       ::result/attempts 1
@@ -680,7 +680,7 @@
                       ::data-source/cache-deps #{:id}
                       ::data-source/params {:id 1
                                             :dep ^::data-source/dep [:data-2 :id]}}
-        cache (atom {(cache/cache-key prescription)
+        cache (atom {(data-source/cache-key prescription)
                      {::result/success? true
                       ::result/attempts 1
                       ::result/data {:id 333}}})]
@@ -733,7 +733,7 @@
                       ::data-source/cache-deps #{:id}
                       ::data-source/params {:id 1
                                             :dep ^::data-source/dep [:data-2 :id]}}
-        cache-key (cache/cache-key prescription)
+        cache-key (data-source/cache-key prescription)
         cache (atom {cache-key
                      {::result/success? true
                       ::result/attempts 1

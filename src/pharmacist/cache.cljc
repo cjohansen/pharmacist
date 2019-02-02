@@ -9,14 +9,11 @@
 (s/def ::cache #(instance? clojure.lang.IRef %))
 (s/def ::cache-get-args (s/cat :cache ::cache :path ::path :prescription ::prescription))
 
-(defn cache-key [prescription]
-  (data-source/cache-key prescription))
-
 (defn cache-get
   "Look up data source in the cache. Expects all parameters in `prescription` to
   be dependency resolved and fully realized."
   [cache path prescription]
-  (get @cache (cache-key prescription)))
+  (get @cache (data-source/cache-key prescription)))
 
 (s/fdef cache-get
   :args ::cache-get-args
@@ -31,7 +28,7 @@
   "Put item in cache. Expects all parameters in `prescription` to be dependency
   resolved and fully realized."
   [cache path prescription value]
-  (swap! cache assoc (cache-key prescription) value)
+  (swap! cache assoc (data-source/cache-key prescription) value)
   nil)
 
 (s/fdef cache-put
@@ -44,9 +41,17 @@
 (s/def ::params (s/keys :req-un [::cache-get ::cache-put]))
 
 (defn atom-map
-  "Given a ref to use as a cache, returns a map of parameters to pass to
-  `pharmacist.prescription/fill` in order to look up and store loaded data in
-  the cache."
+  "Given a ref to use as a cache, returns a map of parameters to pass as
+  the :cache parameter to [[pharmacist.prescription/fill]] in order to look up
+  and store loaded data in the cache.
+
+```clojure
+(require '[pharmacist.prescription :as p]
+         '[pharmacist.cache :as c]
+         '[clojure.core.cache :as cache])
+
+(p/fill prescription {:cache (c/atom-map (atom (cache/ttl-cache-factory {})))})
+```"
   [ref]
   {:cache-get (partial cache-get ref)
    :cache-put (partial cache-put ref)})
