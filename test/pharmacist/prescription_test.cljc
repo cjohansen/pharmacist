@@ -585,7 +585,7 @@
                       ::result/data {:id 333}}})]
     (go
       (is (= (<! (sut/select
-                  (sut/fill {:data-1 prescription} (cache/atom-map cache))
+                  (sut/fill {:data-1 prescription} {:cache (cache/atom-map cache)})
                   [:data-1]))
              {:path :data-1
               :source {::data-source/id ::echo-params
@@ -609,7 +609,7 @@
     (stub stub-1 [{:id 666}])
     (go
       (is (= (-> prescription
-                 (sut/fill (cache/atom-map cache))
+                 (sut/fill {:cache (cache/atom-map cache)})
                  (sut/select [:data-2])
                  exhaust
                  <!)
@@ -658,7 +658,7 @@
                       :data-2 {::data-source/fn #'echo-params
                                ::data-source/params {:id 42}}}]
     (go
-      (is (= (<! (exhaust (sut/select (sut/fill prescription (cache/atom-map cache)) [:data-1])))
+      (is (= (<! (exhaust (sut/select (sut/fill prescription {:cache (cache/atom-map cache)}) [:data-1])))
              [{:path :data-2
                :source {::data-source/id ::echo-params
                         ::data-source/deps #{}
@@ -688,7 +688,7 @@
       (is (= (-> {:data-1 prescription
                   :data-2 {::data-source/fn #'echo-params
                            ::data-source/params {:id 42}}}
-                 (sut/fill (cache/atom-map cache))
+                 (sut/fill {:cache (cache/atom-map cache)})
                  (sut/select [:data-1])
                  exhaust
                  <!)
@@ -707,7 +707,7 @@
        (let [cache (atom {})]
          (-> {:data-1 {::data-source/fn #'echo-params
                        ::data-source/params {:id 43}}}
-             (sut/fill (cache/atom-map cache))
+             (sut/fill {:cache (cache/atom-map cache)})
              (sut/select [:data-1])
              <!)
          (<! (timeout 10))
@@ -722,7 +722,7 @@
        (stub stub-2 [(result/failure {:message "Oops!"})])
        (let [cache (atom {})]
          (-> {:data-1 {::data-source/fn #'echo-stub-2}}
-             (sut/fill (cache/atom-map cache))
+             (sut/fill {:cache (cache/atom-map cache)})
              (sut/select [:data-1])
              <!)
          (<! (timeout 10))
@@ -743,7 +743,7 @@
       (<! (-> {:data-1 prescription
                :data-2 {::data-source/id ::echo-params
                         ::data-source/params {:id 42}}}
-              (sut/fill (cache/atom-map cache))
+              (sut/fill {:cache (cache/atom-map cache)})
               (sut/select [:data-1])
               exhaust))
       (is (= (::cache/cached-at (get @cache cache-key)) 1548695867223)))))
@@ -759,7 +759,7 @@
       (stub stub-1 [{:id 1337 :name "Something"}])
       (is (= (-> {:data-1 prescription
                   :data-3 {::data-source/fn #'echo-stub-1}}
-                 (sut/fill (cache/atom-map cache))
+                 (sut/fill {:cache (cache/atom-map cache)})
                  (sut/select [:data-1])
                  exhaust
                  <!)
@@ -793,7 +793,7 @@
                   :data-2 {::data-source/fn #'echo-params}
                   :data-3 {::data-source/fn #'echo-stub-1
                            ::data-source/params {:id 42}}}
-                 (sut/fill (cache/atom-map cache))
+                 (sut/fill {:cache (cache/atom-map cache)})
                  (sut/select [:data-1])
                  exhaust
                  <!)
@@ -832,7 +832,7 @@
                   :data-3 data-3
                   :data-4 {::data-source/fn #'echo-stub-1
                            ::data-source/params {:id 42}}}
-                 (sut/fill (cache/atom-map cache))
+                 (sut/fill {:cache (cache/atom-map cache)})
                  (sut/select [:data-1])
                  exhaust
                  <!)
@@ -881,7 +881,7 @@
                            ::data-source/params {:id 42}}
                   :data-5 {::data-source/fn #'echo-params
                            ::data-source/params {:name "Deep deps"}}}
-                 (sut/fill (cache/atom-map cache))
+                 (sut/fill {:cache (cache/atom-map cache)})
                  (sut/select [:data-1])
                  exhaust
                  <!)
@@ -933,7 +933,7 @@
                   :data-3 data-3
                   :data-4 {::data-source/fn #'echo-stub-1
                            ::data-source/params {:id 42}}}
-                 (sut/fill (cache/atom-map cache))
+                 (sut/fill {:cache (cache/atom-map cache)})
                  (sut/select [:data-1])
                  exhaust
                  <!)
@@ -1012,7 +1012,7 @@
               :data2 {:input "LOL"}})))))
 
 (defscenario-async "Returns coerced cached data"
-  (let [opt (cache/atom-map (atom {}))
+  (let [opt {:cache (cache/atom-map (atom {}))}
         prescription {:data {::data-source/fn #'echo-params
                              ::data-source/params {:some-attr "LOL"}
                              ::data-source/schema
@@ -1045,7 +1045,7 @@
                               ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}]
     (go
       (is (= (-> prescription
-                 (sut/fill (cache/atom-map (atom {})))
+                 (sut/fill {:cache (cache/atom-map (atom {}))})
                  (sut/select [:non-existent])
                  exhaust
                  <!)

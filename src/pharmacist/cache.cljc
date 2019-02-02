@@ -36,9 +36,9 @@
   :ret nil?)
 
 (s/def ::atom-map-args (s/cat :cache ::cache))
-(s/def ::cache-get fn?)
-(s/def ::cache-put fn?)
-(s/def ::params (s/keys :req-un [::cache-get ::cache-put]))
+(s/def ::get fn?)
+(s/def ::put fn?)
+(s/def ::cache (s/keys :req-un [::get ::put]))
 
 (defn atom-map
   "Given a ref to use as a cache, returns a map of parameters to pass as
@@ -53,9 +53,9 @@
 (p/fill prescription {:cache (c/atom-map (atom (cache/ttl-cache-factory {})))})
 ```"
   [ref]
-  {:cache-get (partial cache-get ref)
-   :cache-put (partial cache-put ref)})
+  {:get (partial cache-get ref)
+   :put (partial cache-put ref)})
 
 (s/fdef atom-map
   :args ::atom-map-args
-  :ret ::params)
+  :ret ::cache)

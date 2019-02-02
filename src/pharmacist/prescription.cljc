@@ -111,7 +111,7 @@
     (update result ::result/data #(schema/coerce-data source %))
     (assoc result ::result/retrying? (retryable? {:source source :result result}))))
 
-(defn- fetch [{:keys [cache-put]} path source]
+(defn- fetch [{:keys [cache]} path source]
   (a/go
     (let [attempts (inc (get source ::result/attempts 0))
           source (assoc source ::result/attempts attempts)
@@ -120,9 +120,9 @@
                   :result (-> (a/<! (data-source/fetch source))
                               (assoc ::result/attempts attempts)
                               (prep-result source))}]
-      (when (and (ifn? cache-put) (result/success? (:result result)))
-        (cache-put (->path path) (:source result) (assoc (:result result)
-                                                         :pharmacist.cache/cached-at (now))))
+      (when (and (ifn? (:put cache)) (result/success? (:result result)))
+        ((:put cache) (->path path) (:source result) (assoc (:result result)
+                                                            :pharmacist.cache/cached-at (now))))
       result)))
 
 (defn- params->deps [{::data-source/keys [original-params]} params]
@@ -220,8 +220,8 @@
      :prescription (update-prescription prescription nested results retryable refresh)
      :ks (set (pending loaded (concat ks (keys nested) refresh)))}))
 
-(defn- load-cached [{:keys [cache-get]} resolved ks]
-  (when (ifn? cache-get)
+(defn- load-cached [cache resolved ks]
+  (when-let [cache-get (and (ifn? (:get cache)) (:get cache))]
     (->> ks
          (remove #(let [{::data-source/keys [params refreshing?] :as source} (get resolved %)]
                     (or (nil? source) refreshing? (dep? params))))
@@ -237,7 +237,7 @@
          (filter identity))))
 
 (defn- try-cache [opt ch result loaded prescription ks]
-  (when-let [results (seq (load-cached opt prescription ks))]
+  (when-let [results (seq (load-cached (:cache opt) prescription ks))]
     (a/go
       (doseq [res results]
         (a/>! ch (update res :source prep-source))
