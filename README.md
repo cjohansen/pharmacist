@@ -34,6 +34,7 @@ both synchronous and asynchronous sources. Some relevant examples include:
 
 ## Table of contents
 
+- [Install](#install)
 - [Data sources](#data-sources)
 - [Prescriptions](#prescriptions)
 - [Retries](#retry-on-failure)
@@ -44,6 +45,25 @@ both synchronous and asynchronous sources. Some relevant examples include:
 - [HTTP convenience function](#http-convenience-function)
 - [Reference](#reference)
 - [Example: Single-page application](#spa)
+
+## Install
+
+**NB!** The goal is for Pharmacist to become a stable library worthy of your
+trust, which never intentionally breaks backwards compatibility. Currently,
+however, it is still under development, and slight changes may occur. This will
+be the case for as long as the version is prefixed with a `0`.
+
+With tools.deps:
+
+```clj
+cjohansen/pharmacist {:mvn/version "0.2019.02.03"}
+```
+
+With Leiningen:
+
+```clj
+[cjohansen/pharmacist "0.2019.02.03"]
+```
 
 ## Data sources
 
