@@ -2,7 +2,7 @@
 
 Pharmacist is an "inversion of control" _library_ for data access: given
 multiple sources of data, it finds the fastest way to fetch them all, optionally
-caches results, retries failing fetches, handles errors in unified way, and
+caches results, retries failing fetches, handles errors in a unified way, and
 optionally validates, transforms, and coerces data on the way back. Pharmacist
 helps you isolate the mechanics of fetching data, and allows your data
 processing functions to reach their full potential as pure consumers of Clojure
