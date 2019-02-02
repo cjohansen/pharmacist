@@ -1,6 +1,6 @@
 (ns pharmacist.result
-  "Namespace and functions to support construction and processing of data source
-  results"
+  "Functions and specs to support construction and processing of data source
+  results."
   (:require #?(:clj [clojure.spec.alpha :as s]
                :cljs [cljs.spec.alpha :as s])
             [pharmacist.data-source :as data-source]))
@@ -8,17 +8,17 @@
 (s/def ::success? boolean?)
 (s/def ::path (s/coll-of keyword?))
 (s/def ::data any?)
-(s/def ::prescriptions (s/map-of (s/or :keyword keyword?
-                                       :path (s/coll-of (s/or :keyword keyword?
-                                                              :number number?))) ::data-source/prescription))
+(s/def ::attempts number?)
+(s/def ::retryable? boolean?)
+
 (s/def ::result (s/keys :req [::success?]
-                        :opt [::path ::data ::prescriptions]))
+                        :opt [::data ::attempts ::retryable?]))
 
 (s/def ::success?-args (s/cat :result ::result))
 
 (defn success?
   "Returns true if this particular result was a success, as indicated by
-  the :pharmacist.result/success? key"
+  the `:pharmacist.result/success?` key"
   [result]
   (::success? result))
 
@@ -26,16 +26,12 @@
   :args ::success?-args
   :ret boolean?)
 
-(s/def ::success-args (s/or :unary (s/cat :data any?)
-                            :binary (s/cat :data any? :prescriptions ::prescriptions)))
+(s/def ::success-args (s/cat :data any?))
 
 (defn success
-  "Create a successful result with data, and optionally nested prescriptions"
-  [data & [prescriptions]]
-  (merge {::success? true
-          ::data data}
-         (when prescriptions
-           {::prescriptions prescriptions})))
+  "Create a successful result with data"
+  [data]
+  {::success? true ::data data})
 
 (s/fdef success
   :args ::success-args
@@ -44,10 +40,16 @@
 (s/def ::failure-args (s/or :nullary (s/cat)
                             :unary (s/cat :data any?)
                             :binary (s/cat :data any?
-                                           :config map?)))
+                                           :config (s/keys :opt [::retryable?]))))
 
 (defn failure
-  "Create a failed result, optionally with data"
+  "Create a failed result, optionally with data and additional keys for the result.
+
+```clojure
+(require '[pharmacist.result :as result])
+
+(result/failure {:message \"Oops!\"} {::result/retryable? true})
+```"
   [& [data config]]
   (merge {::success? false}
          (when data {::data data})
