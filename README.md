@@ -56,13 +56,13 @@ be the case for as long as the version is prefixed with a `0`.
 With tools.deps:
 
 ```clj
-cjohansen/pharmacist {:mvn/version "0.2019.02.03"}
+cjohansen/pharmacist {:mvn/version "0.2019.02.03-1"}
 ```
 
 With Leiningen:
 
 ```clj
-[cjohansen/pharmacist "0.2019.02.03"]
+[cjohansen/pharmacist "0.2019.02.03-1"]
 ```
 
 ## Data sources
