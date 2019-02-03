@@ -38,18 +38,18 @@
   "Fetch a source synchronously. This method is dispatched on the
   `:pharmacist/data-source/id` key of the source. If no
   `:pharmacist.data-source/fn` or `:pharmacist.data-source/async-fn` is
-  provided, and [fetch] is not implemented for the id, then this method is
-  called with a single source. It should return a [parmacist.result/success] or
-  [parmacist.result/failure]."
+  provided, and [[fetch]] is not implemented for the id, then this method is
+  called with a single source. It should return a [[parmacist.result/success]]
+  or [parmacist.result/failure]."
   (fn [source] (::id source)))
 
 (defmulti fetch
   "Fetch a source asynchronously. This method is dispatched on the
   `:pharmacist/data-source/id` key of the source. If no
   `:pharmacist.data-source/fn` or `:pharmacist.data-source/async-fn` is
-  provided, this method is called with a single source. It should return
-  a `clojure.core.async/chan` that emits a single message, which should be
-  one of [parmacist.result/success] or [parmacist.result/failure]. The default
+  provided, this method is called with a single source. It should return a
+  `clojure.core.async/chan` that emits a single message, which should be one
+  of [[parmacist.result/success]] or [[parmacist.result/failure]]. The default
   implementation delegates to [fetch-async]."
   (fn [source] (::id source)))
 
@@ -83,10 +83,10 @@
         (map #(vector %) (keys params)))))
 
 (defmulti cache-deps
-  "Specify which dependencies are relevant to compute a cache key. Should return
-  a set of dependencies. The default implementation extracts the dependencies
-  from the result from [cache-params]. Most use-cases are best solved using
-  [cache-params], and in the rare cases where you need to control cache
+  "Specify which dependencies are relevant to compute a cache key. Should return a
+  set of dependencies. The default implementation extracts the dependencies from
+  the result from [[cache-params]]. Most use-cases are best solved using
+  [[cache-params]], and in the rare cases where you need to control cache
   dependencies manually, it is recommended to specify it declaratively in your
   sources:
 
@@ -110,7 +110,7 @@
 (defmulti cache-key
   "Given a source, return the cache key that uniquely addresses content loaded by
   the source. The default implementation combines the id/type with the
-  [cache-params]. It is strongly recommended to make sure the source's
+  [[cache-params]]. It is strongly recommended to make sure the source's
   variations are expressed as parameters so you can rely on the default
   implementation of this method. If this is somehow not possible, you can
   implement this method, which dispatches on a source's

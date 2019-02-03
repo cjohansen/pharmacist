@@ -151,7 +151,7 @@
   (get m (keyword (name k))))
 
 (defn infer-camel-ns
-  "Like [infer-ns], but also infers dash cased keys from their camel cased
+  "Like [[infer-ns]], but also infers dash cased keys from their camel cased
   counterparts:
 
 ```clojure
