@@ -27,12 +27,16 @@
   :args ::success?-args
   :ret boolean?)
 
-(s/def ::success-args (s/cat :data any?))
+(s/def ::success-args (s/or :unary (s/cat :data any?)
+                            :binary (s/cat :data any?
+                                           :config map?)))
 
 (defn success
   "Create a successful result with data"
-  [data]
-  {::success? true ::data data})
+  [data & [config]]
+  (merge
+   {::success? true ::data data}
+   config))
 
 (s/fdef success
   :args ::success-args
