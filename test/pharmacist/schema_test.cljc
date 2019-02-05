@@ -72,6 +72,14 @@
                        :person/entity)
            {:person/display-name "Miss Piggy"})))
 
+  (testing "Gets key from nested source path"
+    (is (= (sut/coerce {:person/display-name {::sut/spec string?
+                                              ::sut/source [:person :name]}
+                        :person/entity {::sut/spec (s/keys :req [:person/display-name])}}
+                       {:person {:name "Miss Piggy"}}
+                       :person/entity)
+           {:person/display-name "Miss Piggy"})))
+
   (testing "Gets un-namespaced keys from :req-un and :opt-un keyspecs"
     (is (= (sut/coerce {:display-name {::sut/source :displayName}
                         :show {}

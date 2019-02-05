@@ -55,6 +55,7 @@
                 :as keyspec} data k & [default]]
   (let [v (cond
             (nil? source) (get data k default)
+            (vector? source) (get-in data source)
             (keyword? source) (source data)
             :default (source data k))]
     (if coerce
