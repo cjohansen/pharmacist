@@ -67,7 +67,7 @@
                           keyspec e))))
       v)))
 
-(defn coerce [schema data k]
+(defn coerce [schema data k & [default]]
   (let [{::keys [spec] :as keyspec} (schema k)
         ks (specced-keys spec)
         collection-type (coll-of spec)]
@@ -79,8 +79,8 @@
                         (filter #(not (nil? (second %))))
                         (into {}))))
       collection-type (when-let [coll (lookup keyspec data k)]
-                        (map #(coerce schema % collection-type) coll))
-      :default (lookup keyspec data k))))
+                        (map #(coerce schema % collection-type %) coll))
+      :default (lookup keyspec data k default))))
 
 (defmulti coerce-data
   "Coerces `data` according to the spec in `source`. The default implementation

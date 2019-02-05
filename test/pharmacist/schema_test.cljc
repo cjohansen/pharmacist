@@ -169,7 +169,28 @@
                         :person/friends [{:person/name "Miss Piggy"}]}
                        :person/entity)
            {:person/name :kermit
-            :person/friends [{:person/name :piggy}]}))))
+            :person/friends [{:person/name :piggy}]})))
+
+  (testing "Coerces sequence items"
+    (is (= (sut/coerce
+            {::consumption-reading {::sut/coerce (fn [{:keys [timestamp reading-value]}]
+                                                   {:timestamp (first (str/split timestamp #"T"))
+                                                    :value reading-value})}
+             ::entity {::sut/spec (s/coll-of ::consumption-reading)
+                       ::sut/source [:consumption :readings]}}
+            {:consumption {:readings [{:timestamp "2018-08-01T00:00:00"
+                                       :reading-value 250
+                                       :temperature 0}
+                                      {:timestamp "2018-09-01T00:00:00"
+                                       :reading-value 300
+                                       :temperature 0}
+                                      {:timestamp "2018-10-01T00:00:00"
+                                       :reading-value 85
+                                       :temperature 0}]}}
+            ::entity)
+           [{:timestamp "2018-08-01", :value 250}
+            {:timestamp "2018-09-01", :value 300}
+            {:timestamp "2018-10-01", :value 85}]))))
 
 (deftest coerce-data-source-test
   (testing "Leaves data untouched if no schema is defined"
