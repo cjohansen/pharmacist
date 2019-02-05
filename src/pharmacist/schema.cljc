@@ -46,7 +46,7 @@
   "Returns what, if anything, the spec is a collection of"
   [spec]
   (when-let [form (spec-form spec)]
-    (->> (s/form spec)
+    (->> form
          (specs-by-fn #?(:cljs 'cljs.spec.alpha/coll-of
                          :clj 'clojure.spec.alpha/coll-of))
          first)))
