@@ -106,16 +106,16 @@
                     ::data-source/fn ::data-source/async-fn ::data-source/cache-params
                     ::result/attempts ::result/refresh)))
 
-(defn- error [message reason]
+(defn- result-error [message reason]
   {:message (str "Fetch did not return a pharmacist result: " message)
    :type :pharmacist.error/invalid-result
    :reason (keyword "pharmacist.error" (name reason))})
 
-(def ^:private result-not-map (error "not a map" :result-not-map))
-(def ^:private result-nil (error "nil" :result-nil))
-(def ^:private result-not-result (error "no :pharmacist.result/success? or :pharmacist.result/data" :not-pharmacist-result))
+(def ^:private result-not-map (result-error "not a map" :result-not-map))
+(def ^:private result-nil (result-error "nil" :result-nil))
+(def ^:private result-not-result (result-error "no :pharmacist.result/success? or :pharmacist.result/data" :not-pharmacist-result))
 
-(defn- prep-result [result source]
+(defn- prep-result [source result]
   (let [result (cond
                  (nil? result) (result/error result result-nil)
                  (not (map? result)) (result/error result result-not-map)
@@ -131,14 +131,13 @@
   (a/go
     (let [attempts (inc (get source ::result/attempts 0))
           source (assoc source ::result/attempts attempts)
-          result {:source source
-                  :path path
-                  :result (-> (a/<! (data-source/fetch source))
-                              (prep-result source))}]
-      (when (and (ifn? (:put cache)) (result/success? (:result result)))
-        ((:put cache) (->path path) (:source result) (assoc (:result result)
-                                                            :pharmacist.cache/cached-at (now))))
-      result)))
+          message {:source source
+                   :path path
+                   :result (prep-result source (a/<! (data-source/safe-fetch source)))}]
+      (when (and (ifn? (:put cache)) (result/success? (:result message)))
+        ((:put cache) (->path path) (:source message) (assoc (:result message)
+                                                             :pharmacist.cache/cached-at (now))))
+      message)))
 
 (defn- params->deps [{::data-source/keys [original-params]} params]
   (mapcat (fn [param]

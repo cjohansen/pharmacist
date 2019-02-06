@@ -1271,6 +1271,67 @@
              ::result/original-result {:lol 42}
              ::result/retrying? false}]))))
 
+(defscenario-async "Gracefully fails when async fetch throws exception"
+  (go
+    (let [error (ex-info "Holy moly" {})]
+      (is (= (<! (-> {:data {::data-source/id ::async-throw
+                             ::data-source/async-fn (fn [_] (throw error))}}
+                     sut/fill
+                     (sut/select [:data])
+                     results))
+             [{::result/success? false
+               ::result/attempts 1
+               ::result/error {:message "Fetch threw exception: Holy moly"
+                               :type :pharmacist.error/fetch-exception}
+               ::result/original-result error
+               ::result/retrying? false}])))))
+
+(defmethod data-source/fetch ::custom-fetch-throw [source]
+  (throw (ex-info "Hole mole" {})))
+
+(defscenario-async "Gracefully fails when custom fetch throws exception"
+  (go
+    (let [error (ex-info "Holy moly" {})]
+      (is (= (dissoc (first (<! (-> {:data {::data-source/id ::custom-fetch-throw}}
+                                    sut/fill
+                                    (sut/select [:data])
+                                    results)))
+                     ::result/original-result)
+             {::result/success? false
+              ::result/attempts 1
+              ::result/error {:message "Fetch threw exception: Hole mole"
+                              :type :pharmacist.error/fetch-exception}
+              ::result/retrying? false})))))
+
+(defscenario-async "Gracefully fails when sync fetch throws exception"
+  (go
+    (let [error (ex-info "Holy moly" {})]
+      (is (= (<! (-> {:data {::data-source/id ::sync-throw
+                             ::data-source/fn (fn [_] (throw error))}}
+                     sut/fill
+                     (sut/select [:data])
+                     results))
+             [{::result/success? false
+               ::result/attempts 1
+               ::result/error {:message "Fetch threw exception: Holy moly"
+                               :type :pharmacist.error/fetch-exception}
+               ::result/original-result error
+               ::result/retrying? false}])))))
+
+(defscenario-async "Gracefully fails when fetch does not take a single argument"
+  (go
+    (let [error (ex-info "Holy moly" {})]
+      (is (re-find
+           #"Wrong number of args"
+           (->> (<! (-> {:data {::data-source/id ::lazy-seq-fail
+                                ::data-source/fn (fn [] (throw error))}}
+                        sut/fill
+                        (sut/select [:data])
+                        results))
+                first
+                ::result/error
+                :message))))))
+
 (defscenario "Merges data from results"
   (is (= (sut/merge-results [{:path :id
                               :result {::result/data 1}}

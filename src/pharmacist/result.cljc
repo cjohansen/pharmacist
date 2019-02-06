@@ -2,8 +2,7 @@
   "Functions and specs to support construction and processing of data source
   results."
   (:require #?(:clj [clojure.spec.alpha :as s]
-               :cljs [cljs.spec.alpha :as s])
-            [pharmacist.data-source :as data-source]))
+               :cljs [cljs.spec.alpha :as s])))
 
 (s/def ::success? boolean?)
 (s/def ::path (s/coll-of keyword?))
@@ -63,3 +62,8 @@
 (s/fdef failure
   :args ::failure-args
   :ret ::result)
+
+(defn error [result error]
+  {::success? false
+   ::original-result result
+   ::error error})

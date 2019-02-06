@@ -2,7 +2,8 @@
   "Tools for implementing data sources"
   (:require #?(:clj [clojure.core.async :as a]
                :cljs [cljs.core.async :as a])
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [pharmacist.result :as result]))
 
 (defn- fname [f]
   (when-let [name (some-> f str (str/replace #"_" "-"))]
@@ -53,11 +54,32 @@
   implementation delegates to [fetch-async]."
   (fn [source] (::id source)))
 
+(defn- error-result [err]
+  (result/error err {:message (str "Fetch threw exception: " #?(:clj (.getMessage err)
+                                                                :cljs (.-message err)))
+                     :type :pharmacist.error/fetch-exception}))
+
+(defn- safe-sync [f source]
+  (a/go
+    (try
+      (f source)
+      (catch #?(:clj Throwable :cljs :default) e
+        (error-result e)))))
+
+(defn safe-async [f source]
+  (try
+    (f source)
+    (catch #?(:clj Throwable :cljs :default) e
+      (a/go (error-result e)))))
+
 (defmethod fetch :default [source]
   (cond
-    (::async-fn source) ((::async-fn source) source)
-    (::fn source) (a/go ((::fn source) source))
-    :default (a/go (fetch-sync source))))
+    (::async-fn source) (safe-async (::async-fn source) source)
+    (::fn source) (safe-sync (::fn source) source)
+    :default (safe-sync fetch-sync source)))
+
+(defn safe-fetch [source]
+  (safe-async fetch source))
 
 (defmulti cache-params
   "Selects which parameters to use to calculate the cache key for a source.
