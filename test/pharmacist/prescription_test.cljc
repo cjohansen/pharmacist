@@ -1332,6 +1332,20 @@
                 ::result/error
                 :message))))))
 
+(defscenario-async "Gracefully fails when fetch does not return a channel"
+  (go
+    (let [error (ex-info "Holy moly" {})]
+      (is (= (-> (<! (-> {:data {::data-source/id ::no-port
+                                 ::data-source/async-fn (fn [_] :lol)}}
+                         sut/fill
+                         (sut/select [:data])
+                         results))
+                 first
+                 ::result/error
+                 (dissoc :upstream))
+             {:message "Fetch return value is not a core.async read port: :lol"
+              :type :pharmacist.error/fetch-no-chan})))))
+
 (defscenario "Merges data from results"
   (is (= (sut/merge-results [{:path :id
                               :result {::result/data 1}}

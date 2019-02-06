@@ -127,13 +127,24 @@
         (update result ::result/data #(schema/coerce-data source %))
         (assoc result ::result/retrying? (retryable? {:source source :result result}))))))
 
+(defn- safe-take [port]
+  (a/go
+    (try
+      (a/<! port)
+      (catch #?(:clj Throwable :cljs :default) e
+        (result/error
+         port
+         {:message (str "Fetch return value is not a core.async read port: " port)
+          :type :pharmacist.error/fetch-no-chan
+          :upstream e})))))
+
 (defn- fetch [{:keys [cache]} path source]
   (a/go
     (let [attempts (inc (get source ::result/attempts 0))
           source (assoc source ::result/attempts attempts)
           message {:source source
                    :path path
-                   :result (prep-result source (a/<! (data-source/safe-fetch source)))}]
+                   :result (prep-result source (a/<! (safe-take (data-source/safe-fetch source))))}]
       (when (and (ifn? (:put cache)) (result/success? (:result message)))
         ((:put cache) (->path path) (:source message) (assoc (:result message)
                                                              :pharmacist.cache/cached-at (now))))
