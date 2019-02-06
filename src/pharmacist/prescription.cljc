@@ -106,10 +106,26 @@
                     ::data-source/fn ::data-source/async-fn ::data-source/cache-params
                     ::result/attempts ::result/refresh)))
 
+(defn- error [message reason]
+  {:message (str "Fetch did not return a pharmacist result: " message)
+   :type :pharmacist.error/invalid-result
+   :reason (keyword "pharmacist.error" (name reason))})
+
+(def ^:private result-not-map (error "not a map" :result-not-map))
+(def ^:private result-nil (error "nil" :result-nil))
+(def ^:private result-not-result (error "no :pharmacist.result/success? or :pharmacist.result/data" :not-pharmacist-result))
+
 (defn- prep-result [result source]
-  (if (result/success? result)
-    (update result ::result/data #(schema/coerce-data source %))
-    (assoc result ::result/retrying? (retryable? {:source source :result result}))))
+  (let [result (cond
+                 (nil? result) (result/error result result-nil)
+                 (not (map? result)) (result/error result result-not-map)
+                 (and (not (contains? result ::result/success?))
+                      (not (contains? result ::result/data))) (result/error result result-not-result)
+                 :default result)]
+    (let [result (assoc result ::result/attempts (::result/attempts source))]
+      (if (result/success? result)
+        (update result ::result/data #(schema/coerce-data source %))
+        (assoc result ::result/retrying? (retryable? {:source source :result result}))))))
 
 (defn- fetch [{:keys [cache]} path source]
   (a/go
@@ -118,7 +134,6 @@
           result {:source source
                   :path path
                   :result (-> (a/<! (data-source/fetch source))
-                              (assoc ::result/attempts attempts)
                               (prep-result source))}]
       (when (and (ifn? (:put cache)) (result/success? (:result result)))
         ((:put cache) (->path path) (:source result) (assoc (:result result)

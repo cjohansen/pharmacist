@@ -1226,6 +1226,51 @@
                   (into #{}))
              #{:user :facilities [:facilities 0]})))))
 
+(defscenario-async "Gracefully fails lazy seq in place of proper result"
+  (go
+    (is (= (<! (-> {:data {::data-source/id ::lazy-seq-fail
+                           ::data-source/fn (constantly (map identity []))}}
+                   sut/fill
+                   (sut/select [:data])
+                   results))
+           [{::result/success? false
+             ::result/attempts 1
+             ::result/error {:message "Fetch did not return a pharmacist result: not a map"
+                             :type :pharmacist.error/invalid-result
+                             :reason :pharmacist.error/result-not-map}
+             ::result/original-result (list)
+             ::result/retrying? false}]))))
+
+(defscenario-async "Gracefully fails nil in place of proper result"
+  (go
+    (is (= (<! (-> {:data {::data-source/id ::lazy-seq-fail
+                           ::data-source/fn (constantly nil)}}
+                   sut/fill
+                   (sut/select [:data])
+                   results))
+           [{::result/success? false
+             ::result/attempts 1
+             ::result/error {:message "Fetch did not return a pharmacist result: nil"
+                             :type :pharmacist.error/invalid-result
+                             :reason :pharmacist.error/result-nil}
+             ::result/original-result nil
+             ::result/retrying? false}]))))
+
+(defscenario-async "Gracefully fails when result does not have success or result"
+  (go
+    (is (= (<! (-> {:data {::data-source/id ::lazy-seq-fail
+                           ::data-source/fn (constantly {:lol 42})}}
+                   sut/fill
+                   (sut/select [:data])
+                   results))
+           [{::result/success? false
+             ::result/attempts 1
+             ::result/error {:message "Fetch did not return a pharmacist result: no :pharmacist.result/success? or :pharmacist.result/data"
+                             :type :pharmacist.error/invalid-result
+                             :reason :pharmacist.error/not-pharmacist-result}
+             ::result/original-result {:lol 42}
+             ::result/retrying? false}]))))
+
 (defscenario "Merges data from results"
   (is (= (sut/merge-results [{:path :id
                               :result {::result/data 1}}
