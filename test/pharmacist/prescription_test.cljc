@@ -1346,6 +1346,58 @@
              {:message "Fetch return value is not a core.async read port: :lol"
               :type :pharmacist.error/fetch-no-chan})))))
 
+(defscenario-async "Times out long-running request"
+  (go
+    (let [error (ex-info "Holy moly" {})]
+      (is (= (-> {:data {::data-source/id ::long-running
+                         ::data-source/async-fn (fn [_]
+                                                  (go
+                                                    (<! (timeout 100))
+                                                    (result/success {:ok true})))}}
+                 (sut/fill {:timeout 20})
+                 (sut/select [:data])
+                 results
+                 <!)
+             [{::result/success? false
+               ::result/timeout-after 20
+               ::result/attempts 1
+               ::result/retrying? false}])))))
+
+(defscenario-async "Overrides timeout on source"
+  (go
+    (let [error (ex-info "Holy moly" {})]
+      (is (= (-> {:data {::data-source/id ::long-running
+                         ::data-source/timeout 30
+                         ::data-source/async-fn (fn [_]
+                                                  (go
+                                                    (<! (timeout 100))
+                                                    (result/success {:ok true})))}}
+                 (sut/fill {:timeout 20})
+                 (sut/select [:data])
+                 results
+                 <!)
+             [{::result/success? false
+               ::result/timeout-after 30
+               ::result/attempts 1
+               ::result/retrying? false}])))))
+
+(defscenario-async "Treats 0 as no timeout"
+  (go
+    (let [error (ex-info "Holy moly" {})]
+      (is (= (-> {:data {::data-source/id ::long-running
+                         ::data-source/timeout 0
+                         ::data-source/async-fn (fn [_]
+                                                  (go
+                                                    (<! (timeout 20))
+                                                    (result/success {:ok true})))}}
+                 (sut/fill {:timeout 10})
+                 (sut/select [:data])
+                 results
+                 <!)
+             [{::result/success? true
+               ::result/data {:ok true}
+               ::result/attempts 1}])))))
+
 (defscenario "Merges data from results"
   (is (= (sut/merge-results [{:path :id
                               :result {::result/data 1}}
