@@ -63,7 +63,16 @@
   :args ::failure-args
   :ret ::result)
 
-(defn error [result error]
+(defn error
+  "Create a failed result that caused an unexpected error - e.g. throwing an
+  exception, not fulfilling fetch's contract, etc. `result` is whatever the
+  original result was - possibly even an exception, and `error` is a map of:
+
+| `:message`  | A helpful message trying to help the developer understand the problem |
+| `:type`     | A keyword indicating the type of error |
+| `:reason`   | An optional reason - one type of error may occur for different reasons |
+| `:upstream` | The exception that caused this error, if any |"
+  [result error]
   {::success? false
    ::original-result result
    ::error error})
