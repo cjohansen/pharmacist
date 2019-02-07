@@ -375,13 +375,18 @@
        (map second)
        (reduce #(and %1 %2) true)))
 
+(defn- unseq [data]
+  (if (seq? data)
+    (into [] data)
+    data))
+
 (defn merge-results [results]
   (->> results
        (filter #(get-in % [:result ::result/success?] true))
        (map #(update % :path ->path))
        (sort-by #(-> % :path count))
        (reduce (fn [res {:keys [path result]}]
-                 (assoc-in res path (::result/data result))) {})))
+                 (assoc-in res path (unseq (::result/data result)))) {})))
 
 (defn collect [port]
   (a/go-loop [results []]

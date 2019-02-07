@@ -1488,6 +1488,16 @@
           :facilities [{:id 1 :name "First one" :load :high}
                        {:id 2 :name "Second one" :load :low}]})))
 
+(defscenario "Merges results with lazy seqs"
+  (is (= (sut/merge-results [{:path :facilities
+                              :result {::result/data (map identity [{:facility-id 1} {:facility-id 2}])}}
+                             {:path '(:facilities 0)
+                              :result {::result/data {:id 1 :name "First one"}}}
+                             {:path '(:facilities 1)
+                              :result {::result/data {:id 2 :name "Second one"}}}])
+         {:facilities [{:id 1 :name "First one"}
+                       {:id 2 :name "Second one"}]})))
+
 (defscenario "Ignores failed events"
   (is (= (sut/merge-results [{:path :id
                               :result {::result/data 666}}
