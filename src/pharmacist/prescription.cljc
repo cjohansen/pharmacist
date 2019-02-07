@@ -124,7 +124,11 @@
                  :default result)]
     (let [result (assoc result ::result/attempts (::result/attempts source))]
       (if (result/success? result)
-        (update result ::result/data #(schema/coerce-data source %))
+        (if (::data-source/schema source)
+          (-> result
+              (assoc ::result/raw-data (::result/data result))
+              (update ::result/data #(schema/coerce-data source %)))
+          result)
         (assoc result ::result/retrying? (retryable? {:source source :result result}))))))
 
 (defn- safe-take [fetch-port timeout-ms]

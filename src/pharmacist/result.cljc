@@ -7,12 +7,13 @@
 (s/def ::success? boolean?)
 (s/def ::path (s/coll-of keyword?))
 (s/def ::data any?)
+(s/def ::raw-data any?)
 (s/def ::attempts number?)
 (s/def ::retryable? boolean?)
 (s/def :pharmacist.cache/cached-at number?)
 
 (s/def ::result (s/keys :req [::success?]
-                        :opt [::data ::attempts ::retryable? :pharmacist.cache/cached-at]))
+                        :opt [::raw-data ::data ::attempts ::retryable? :pharmacist.cache/cached-at]))
 
 (s/def ::success?-args (s/cat :result ::result))
 

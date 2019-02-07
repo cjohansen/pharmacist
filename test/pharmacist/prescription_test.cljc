@@ -975,6 +975,20 @@
                ::result/data)
            {:data {:source1/some-attr "LOL"}}))))
 
+(defscenario-async "Includes raw data when there is a schema"
+  (go
+    (is (= (-> {:data {::data-source/fn #'echo-params
+                       ::data-source/params {:some-attr "LOL"}
+                       ::data-source/schema
+                       {:source1/some-attr {::schema/source :some-attr}
+                        ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}}
+               sut/fill
+               (sut/select [:data])
+               <!
+               :result
+               ::result/raw-data)
+           {:some-attr "LOL"}))))
+
 (defscenario-async "Passes coerced data as dependencies"
   (let [prescription {:data {::data-source/fn #'echo-params
                              ::data-source/params {:some-attr "LOL"}
