@@ -69,6 +69,9 @@
 (defn doubled [{::data-source/keys [params]}]
   (result/success (* (:number params) 2)))
 
+(defn get-facility-ids [{::data-source/keys [params]}]
+  (result/success (:ids params)))
+
 (defscenario "Ignores no dependencies"
   (is (= (sut/resolve-deps {:data-1 {::data-source/id :data/one}
                             :data-2 {::data-source/id :data/two}})
@@ -178,6 +181,45 @@
           :data-3 {::data-source/id :data/three
                    ::data-source/params {:final [:data-2 :prop]}
                    ::data-source/deps #{:data-2}}})))
+
+(defscenario "Adds dependencies on collection items to source depending on collection"
+  (is (= (sut/resolve-deps
+          {:data-1 {::data-source/id :data/one}
+           :data-2 {::data-source/id :data/two
+                    ::data-source/params {:other ^::data-source/dep [:data-1]}}
+           [:data-1 0] {::data-source/id :data/three
+                        ::data-source/in-coll :data-1}}
+          [:data-2])
+         {:data-1 {::data-source/id :data/one
+                   ::data-source/deps #{[:data-1 0]}}
+          :data-2 {::data-source/id :data/two
+                   ::data-source/params {:other [:data-1]}
+                   ::data-source/deps #{:data-1}}
+          [:data-1 0] {::data-source/id :data/three
+                       ::data-source/in-coll :data-1
+                       ::data-source/deps #{}}})))
+
+(defscenario "Adds transitive dependencies from collection items to source depending on collection"
+  (is (= (sut/resolve-deps
+          {:data-1 {::data-source/id :data/one}
+           :data-2 {::data-source/id :data/two
+                    ::data-source/params {:other ^::data-source/dep [:data-1]}}
+           :data-3 {::data-source/id :data/one}
+           [:data-1 0] {::data-source/id :data/three
+                        ::data-source/params {:id ^::data-source/dep [:data-3]}
+                        ::data-source/in-coll :data-1}}
+          [:data-2])
+         {:data-1 {::data-source/id :data/one
+                   ::data-source/deps #{[:data-1 0]}}
+          :data-2 {::data-source/id :data/two
+                   ::data-source/params {:other [:data-1]}
+                   ::data-source/deps #{:data-1}}
+          :data-3 {::data-source/id :data/one
+                   ::data-source/deps #{}}
+          [:data-1 0] {::data-source/id :data/three
+                       ::data-source/in-coll :data-1
+                       ::data-source/deps #{:data-3}
+                       ::data-source/params {:id [:data-3]}}})))
 
 (defscenario "Does not trip on circular dependencies"
   (is (= (sut/resolve-deps
@@ -1065,15 +1107,32 @@
                  <!)
              [])))))
 
-(defn get-facility-ids [{::data-source/keys [params]}]
-  (result/success (:ids params)))
+(defscenario-async "Loads empty collection"
+  (go
+    (is (= (into #{}
+                 (-> {:facility {::data-source/fn #'echo-params
+                                 ::data-source/params {:some "facility"}}
+                      :facilities {::data-source/coll-of :facility
+                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/params {:ids []}}}
+                     sut/fill
+                     (sut/select [:facilities])
+                     exhaust
+                     <!))
+           #{{:path :facilities
+               :source {::data-source/id ::get-facility-ids
+                        ::data-source/params {:ids []}
+                        ::data-source/coll-of :facility
+                        ::data-source/deps #{}}
+               :result {::result/success? true
+                        ::result/data []
+                        ::result/attempts 1}}}))))
 
 (defscenario-async "Loads nested sources from collection"
   (go
     (is (= (into #{}
                  (-> {:facility {::data-source/fn #'echo-params
                                  ::data-source/params {:some "facility"}}
-
                       :facilities {::data-source/coll-of :facility
                                    ::data-source/fn #'get-facility-ids
                                    ::data-source/params {:ids [{:facility-id 1}
@@ -1083,20 +1142,22 @@
                      exhaust
                      <!))
            #{{:path :facilities
-               :source {::data-source/id ::get-facility-ids
-                        ::data-source/params {:ids [{:facility-id 1}
-                                                    {:facility-id 2}]}
-                        ::data-source/coll-of :facility
-                        ::data-source/deps #{}}
-               :result {::result/success? true
-                        ::result/data [{:facility-id 1}
-                                       {:facility-id 2}]
-                        ::result/attempts 1}}
+              :source {::data-source/id ::get-facility-ids
+                       ::data-source/params {:ids [{:facility-id 1}
+                                                   {:facility-id 2}]}
+                       ::data-source/coll-of :facility
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/partial? true
+                       ::result/data [{:facility-id 1}
+                                      {:facility-id 2}]
+                       ::result/attempts 1}}
              {:path [:facilities 0]
               :source {::data-source/id ::echo-params
                        ::data-source/params {:some "facility"
                                              :facility-id 1}
-                       ::data-source/deps #{}}
+                       ::data-source/deps #{}
+                       ::data-source/in-coll :facilities}
               :result {::result/success? true
                        ::result/data {:some "facility"
                                       :facility-id 1}
@@ -1105,10 +1166,21 @@
               :source {::data-source/id ::echo-params
                        ::data-source/params {:some "facility"
                                              :facility-id 2}
-                       ::data-source/deps #{}}
+                       ::data-source/deps #{}
+                       ::data-source/in-coll :facilities}
               :result {::result/success? true
                        ::result/data {:some "facility"
                                       :facility-id 2}
+                       ::result/attempts 1}}
+             {:path :facilities
+              :source {::data-source/id ::get-facility-ids
+                       ::data-source/params {:ids [{:facility-id 1}
+                                                   {:facility-id 2}]}
+                       ::data-source/coll-of :facility
+                       ::data-source/deps #{[:facilities 0] [:facilities 1]}}
+              :result {::result/success? true
+                       ::result/data [{:facility-id 1 :some "facility"}
+                                      {:facility-id 2 :some "facility"}]
                        ::result/attempts 1}}}))))
 
 (defscenario-async "Loads nested sources from map collection"
@@ -1132,6 +1204,7 @@
                         ::data-source/coll-of :facility
                         ::data-source/deps #{}}
                :result {::result/success? true
+                        ::result/partial? true
                         ::result/data {:first {:facility-id 1}
                                        :second {:facility-id 2}}
                         ::result/attempts 1}}
@@ -1139,7 +1212,8 @@
               :source {::data-source/id ::echo-params
                        ::data-source/params {:some "facility"
                                              :facility-id 1}
-                       ::data-source/deps #{}}
+                       ::data-source/deps #{}
+                       ::data-source/in-coll :facilities}
               :result {::result/success? true
                        ::result/data {:some "facility"
                                       :facility-id 1}
@@ -1148,10 +1222,21 @@
               :source {::data-source/id ::echo-params
                        ::data-source/params {:some "facility"
                                              :facility-id 2}
-                       ::data-source/deps #{}}
+                       ::data-source/deps #{}
+                       ::data-source/in-coll :facilities}
               :result {::result/success? true
                        ::result/data {:some "facility"
                                       :facility-id 2}
+                       ::result/attempts 1}}
+             {:path :facilities
+              :source {::data-source/id ::get-facility-ids
+                       ::data-source/params {:ids {:first {:facility-id 1}
+                                                   :second {:facility-id 2}}}
+                       ::data-source/coll-of :facility
+                       ::data-source/deps #{[:facilities :first] [:facilities :second]}}
+              :result {::result/success? true
+                       ::result/data {:first {:facility-id 1 :some "facility"}
+                                      :second {:facility-id 2 :some "facility"}}
                        ::result/attempts 1}}}))))
 
 (defscenario-async "Loads nested sources shadowing dependencies"
@@ -1204,16 +1289,26 @@
                          ::data-source/coll-of :facility
                          ::data-source/deps #{}}
                 :result {::result/success? true
+                         ::result/partial? true
                          ::result/data [{:facility-id 1}]
                          ::result/attempts 1}}
                {:path [:facilities 0]
                 :source {::data-source/id ::echo-params
                          ::data-source/params {:user {:id 13}
                                                :facility-id 1}
-                         ::data-source/deps #{:user}}
+                         ::data-source/deps #{:user}
+                         ::data-source/in-coll :facilities}
                 :result {::result/success? true
                          ::result/data {:user {:id 13}
                                         :facility-id 1}
+                         ::result/attempts 1}}
+               {:path :facilities
+                :source {::data-source/id ::get-facility-ids
+                         ::data-source/params {:ids [{:facility-id 1}]}
+                         ::data-source/coll-of :facility
+                         ::data-source/deps #{[:facilities 0]}}
+                :result {::result/success? true
+                         ::result/data [{:facility-id 1 :user {:id 13}}]
                          ::result/attempts 1}}})))))
 
 (defscenario-async "Does not load shadowed deps in nested sources"
@@ -1239,6 +1334,34 @@
                   (map :path)
                   (into #{}))
              #{:user :facilities [:facilities 0]})))))
+
+(defscenario-async "Passes source with fully resolved nested sources as dependency"
+  (go
+    (is (= (filter #(= :collection (:path %))
+                   (-> {:facility {::data-source/fn #'echo-params
+                                 ::data-source/params {:some "facility"}}
+
+                      :facilities {::data-source/coll-of :facility
+                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/params {:ids [{:facility-id 1}
+                                                               {:facility-id 2}]}}
+
+                      :collection {::data-source/id ::collection
+                                   ::data-source/fn #'echo-params
+                                   ::data-source/params {:facilities ^::data-source/dep [:facilities]}}}
+                     sut/fill
+                     (sut/select [:collection])
+                     exhaust
+                     <!))
+           [{:path :collection
+             :source {::data-source/id ::collection
+                      ::data-source/params {:facilities [{:some "facility" :facility-id 1}
+                                                         {:some "facility" :facility-id 2}]}
+                      ::data-source/deps #{:facilities}}
+             :result {::result/success? true
+                      ::result/data {:facilities [{:some "facility" :facility-id 1}
+                                                  {:some "facility" :facility-id 2}]}
+                      ::result/attempts 1}}]))))
 
 (defscenario-async "Gracefully fails lazy seq in place of proper result"
   (go

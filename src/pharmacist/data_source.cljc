@@ -162,6 +162,7 @@
 (s/def ::cache-params (s/coll-of ::path))
 (s/def ::cache-deps (s/coll-of keyword?))
 (s/def ::coll-of keyword?)
+(s/def ::in-coll keyword?)
 
 (defn- fname [f]
   (when-let [name (some-> f str (str/replace #"_" "-"))]
