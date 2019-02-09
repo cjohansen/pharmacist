@@ -1,4 +1,29 @@
 (ns pharmacist.prescription
+  "A prescription is a map of `[path data-source]` that Pharmacist can fill.
+  From this fulfilled prescription you can select all, or parts of the described
+  data. You can consume/stream data as it becomes available, or combine
+  everything into a single map of `[path result-data]`.
+
+```clj
+(require '[pharmacist.prescription :as p]
+         '[pharmacist.data-source :as data-source]
+         '[clojure.core.async :refer [<!!]])
+
+(def prescription
+  {::auth {::data-source/fn #'spotify-auth
+           ::data-source/params ^::data-source/dep [:config]}
+
+   ::playlists {::data-source/fn #'spotify-playlists
+                ::data-source/params {:token ^::data-source/dep [::auth :access_token]}}})
+
+(-> prescription
+    (p/fill {:params {:config {:spotify-user \"...\"
+                               :spotify-pass \"...\"}}})
+    (p/select [::playlists])
+    p/collect
+    <!!
+    :pharmacist.result/data)
+```"
   (:require [pharmacist.data-source :as data-source]
             [pharmacist.result :as result]
             #?(:clj [clojure.core.async :as a]
@@ -81,7 +106,19 @@
 
       :default (recur res ks))))
 
-(defn resolve-deps [prescription & [ks]]
+(defn resolve-deps
+  "Resolve dependencies in `prescription` by looking up any individual parameter
+  (or full parameter map) that has the metadata `^:pharmacist.data-source/dep`.
+  Returns a prescription where all sources have the
+  `:pharmacist.data-source/deps` key added to them. It will contain a set of
+  keywords, where the keywords are other sources they depend on. Does not
+  require the keywords to exist in the input `prescription`, although if any are
+  missing, [[fill]] will not be able to fetch everything.
+
+  The optional keys in `ks` can be used to give the function focus. The
+  resulting prescription will only include these keys, along with those keys'
+  transitive dependencies, if any."
+  [prescription & [ks]]
   (resolve-deps-with prescription ks ::data-source/deps #(resolve-deps-1 (::data-source/params %1) %2)))
 
 (defn- cache-deps [{::data-source/keys [params] :as source}]
@@ -92,7 +129,12 @@
        (map first)
        (into #{})))
 
-(defn resolve-cache-deps [prescription ks]
+(defn resolve-cache-deps
+  "Resolve cache dependencies. Like [[resolve-deps]], but only considers
+  dependencies necessary to look sources up in cache. Refer to
+  `:pharmacist.data-source/cache-deps` in [[pharmacist.data-source]] for more
+  information on cache dependencies."
+  [prescription ks]
   (resolve-deps-with prescription ks ::data-source/cache-deps (fn [source _] (cache-deps source))))
 
 (defn- dep-path [[source & path]]
@@ -399,7 +441,26 @@
       (let [[results retryable] (a/<! (realize-results ch result reqs))]
         (process-batch-results opt loaded prescription ks results retryable)))))
 
-(defn fill [prescription & [opt]]
+(defn fill
+  "Fills a prescription. Returns a lazy representation of the result, from which
+  you can [[select]] several times, while only fetching each source at most
+  once. `fill` optionally takes a map of options:
+
+| key        | description |
+|------------|-------------|
+| `:params`  | Initial data. Every key in this map will be available as dependencies in the prescription
+| `:timeout` | The maximum number of milliseconds to wait for a fetch to complete. Defaults to 5000
+| `:cache`   | A map of `:get` (function) and `:put` (function) to optionally cache results, see below.
+
+  ## Caching
+
+  To make Pharmacist cache results and make fewer requests, you can plug in a
+  cache. A cache is two functions: `get` and `put`. `get` receives a `path`
+  (which is one of the keys in your `prescription`), and a `source` (the key's
+  corresponding value in the `prescription`) and should return a
+  [[pharmacist.result]], if any exists for the source. `put` receives the
+  `path`, `source`, and additionally the `result`."
+  [prescription & [opt]]
   (let [result (atom (mapvals result/success (:params opt)))
         prescription (mapvals ensure-id prescription)]
     (fn [ks]
@@ -428,7 +489,39 @@
                   (a/close! ch))))))
         ch))))
 
-(defn select [filled ks]
+(defn select
+  "Given a filled prescription, as returned from [[fill]], this function selects
+  one or more keys. Returns a `clojure.core.async` channel that emits one
+  message for each event. When the channel closes, the fetching is complete.
+
+  ## Consuming results
+
+  You can monitor the process of resolving your select by consuming each
+  message as it arrives:
+
+```clj
+(require '[pharmacist.prescription :as p]
+         '[clojure.core.async :refer [go-loop <!]])
+
+(def ch (p/select (p/fill prescription) [:data1 :data2]))
+
+(go-loop []
+  (when-let [message (<! ch)]
+    (prn message)))
+```
+
+  Each message is a map of `:path` (the key from the prescription this message
+  pertains to), `:source` (the original source, with parameters fully resolved
+  from any dependencies), and `:result`, a result which may or may not be final.
+  If the result was not successful, but it is retryable, then the result will
+  include `:pharmacist.result/retrying?` to indicate that Pharmacist will try it
+  again.
+
+  Results that fail, or that are collections may appear multiple times. To
+  combine all the result data into a handy map, see [[merge-results]] and
+  [[collect]].
+"
+  [filled ks]
   (filled ks))
 
 (defn- success? [sources]
@@ -444,7 +537,12 @@
     (into [] data)
     data))
 
-(defn merge-results [results]
+(defn merge-results
+  "Given `results`, a collection of messages as received from the channel
+  returned from [[select]], merge all the successful result data into a single
+  map whose keys are the same as the ones in the original prescription, and the
+  values are those result's `:pharmacist.result/data`."
+  [results]
   (->> results
        (filter #(get-in % [:result ::result/success?] true))
        (map #(update % :path ->path))
@@ -452,7 +550,22 @@
        (reduce (fn [res {:keys [path result]}]
                  (assoc-in res path (unseq (::result/data result)))) {})))
 
-(defn collect [port]
+(defn collect
+  "[[select]] returns a channel that emits many messages, allowing you to track
+  the progression of loading your sources as it goes along. If you don't really
+  care about the intermittent results, you can pipe the channel to `collect`,
+  which will collect all the messages into a single result, and provide a handy
+  summary of the entire operation, including data merged with [[merge-results]].
+  Returns a `cojure.core.async` channel that emits a single message, which is a
+  map of:
+
+| key                           | description |
+|-------------------------------|-------------|
+| `:pharmacist.result/success?` | A boolean indicating overall success. `true` if all sources eventually loaded successfully
+| `:pharmacist.result/sources`  | A list of all the messages received from the [[select]] channel
+| `:pharmacist.result/data`     | The merged data - all messages passed through [[merge-results]]
+"
+  [port]
   (a/go-loop [results []]
     (let [result (a/<! port)]
       (cond

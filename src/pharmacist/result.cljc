@@ -3,18 +3,23 @@
   of [[pharmacist.data-source]] fetch functions. A result is a map with the key
   `:pharmacist.result/success?` (a boolean) and any number of the below keys.
 
-| `:pharmacist.result/success?`   | Boolean. Indicates successful retrieval |
-| `:pharmacist.result/data`       | The resulting data from the fetch functions |
-| `:pharmacist.result/retryable?` | A boolean indicating whether this failure is worth retrying |
-| `:pharmacist.result/refresh`    | Optional set of parameters that must be refreshed before retrying |
+| key                             | description |
+| --------------------------------|-------------|
+| `:pharmacist.result/success?`   | Boolean. Indicates successful retrieval
+| `:pharmacist.result/data`       | The resulting data from the fetch functions
+| `:pharmacist.result/retryable?` | A boolean indicating whether this failure is worth retrying
+| `:pharmacist.result/refresh`    | Optional set of parameters that must be refreshed before retrying
 
   The following keys are set by [[pharmacist.prescription/fill]]:
 
-| `:pharmacist.result/partial?`      | `true` when the selection returned collection items, but the collection items are not yet available |
-| `:pharmacist.result/attempts`      | The number of attempts made to fetch this source |
-| `:pharmacist.result/raw-data`      | When the source has a schema that transforms `::pharmacist.result/data`, this key has the unprocessed result |
-| `:pharmacist.result/timeout-after` | The number of milliseconds at which this source was considered timed out |
-| `:pharmacist.cache/cached-at`      | Timestamp indicating when this result was originally cached |
+| key                                | description |
+| -----------------------------------|-------------|
+| `:pharmacist.result/partial?`      | `true` when the selection returned collection items, but the collection items are not yet available
+| `:pharmacist.result/attempts`      | The number of attempts made to fetch this source
+| `:pharmacist.result/retrying?`     | `true` if the result was a failure and Pharmacist intends to try it again
+| `:pharmacist.result/raw-data`      | When the source has a schema that transforms `::pharmacist.result/data`, this key has the unprocessed result
+| `:pharmacist.result/timeout-after` | The number of milliseconds at which this source was considered timed out
+| `:pharmacist.cache/cached-at`      | Timestamp indicating when this result was originally cached
 "
   (:require #?(:clj [clojure.spec.alpha :as s]
                :cljs [cljs.spec.alpha :as s])))
@@ -98,6 +103,8 @@
   exception, not fulfilling fetch's contract, etc. `result` is whatever the
   original result was - possibly even an exception, and `error` is a map of:
 
+| key         | description |
+| ------------|-------------|
 | `:message`  | A helpful message trying to help the developer understand the problem |
 | `:type`     | A keyword indicating the type of error |
 | `:reason`   | An optional reason - one type of error may occur for different reasons |
