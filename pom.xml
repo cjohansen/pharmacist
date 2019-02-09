@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>cjohansen</groupId>
   <artifactId>pharmacist</artifactId>
-  <version>0.2019.02.03-4</version>
+  <version>0.2019.02.09</version>
   <name>pharmacist</name>
   <dependencies>
     <dependency>

@@ -42,8 +42,7 @@ both synchronous and asynchronous sources. Some relevant examples include:
 - [Mapping/coercion](#mapping-and-coercion)
 - [Nested data sources](#data-begets-data)
 - [Synchronous fetches](#synchronous-fetches)
-- [HTTP convenience function](#http-convenience-function)
-- [Reference](#reference)
+- [API Docs](https://cljdoc.org/d/cjohansen/pharmacist/CURRENT)
 - [Example: Single-page application](#spa)
 
 ## Install
@@ -56,13 +55,13 @@ be the case for as long as the version is prefixed with a `0`.
 With tools.deps:
 
 ```clj
-cjohansen/pharmacist {:mvn/version "0.2019.02.03-4"}
+cjohansen/pharmacist {:mvn/version "0.2019.02.09"}
 ```
 
 With Leiningen:
 
 ```clj
-[cjohansen/pharmacist "0.2019.02.03-4"]
+[cjohansen/pharmacist "0.2019.02.09"]
 ```
 
 ## Data sources
@@ -816,82 +815,6 @@ In the following example, `:auth` failed, so `:playlist` (which requires the
                              ::result/attempts 0}}]}
 ```
 
-# HTTP convenience function
-
-Because HTTP data sources are very common, Pharmacist provides a convenience
-function for them, based on [clj-http](https://github.com/dakrone/clj-http)
-(Clojure) and [cljs-http](https://github.com/r0man/cljs-http) (ClojureScript)-
-both expected to be provided by your application.
-
-```clj
-(require '[pharmacist.data-source :as data-source]
-         '[pharmacist.http :as http])
-
-(defn spotify-playlist [{::data-source/keys [params]}]
-  (http/http-data-source {:method :get
-                          :url "https://api.spotify.com/playlists"
-                          :oauth-token (:token params)}))
-```
-
-## Reference
-
-API docs will be available on cljdoc.org eventually.
-
-### Prescriptions
-
-#### `:pharmacist.data-source/fn`
-
-The function that fetches data. Should return either a
-`pharmacist.result/success` or a `pharmacist.result/failure`.
-
-#### `:pharmacist.data-source/fn-async`
-
-The function that fetches data, asynchronously. Only used if
-`:pharmacist.data-source/fn` is not provided. Should return a core async channel
-that emits a single message which is either a `pharmacist.result/success` or a
-`pharmacist.result/failure`.
-
-#### `:pharmacist.data-source/id`
-
-ID that addresses a data source. If not explicitly provided, it is inferred from
-`:pharmacist.data-source/fn` or `:pharmacist.data-source/async-fn`.
-
-#### `:pharmacist.data-source/params`
-
-Parameters passed from a prescription to a data source. Can be or include
-dependencies on initial parameters and other data sources.
-
-#### `:pharmacist.data-source/retries`
-
-How many times a data source should be retried in case of failure. Defaults to
-`0`. If `:pharmacist.result/retryable?` is set to `false`, this value is
-ignored.
-
-#### `:pharmacist.data-source/dep`
-
-This keyword is set as meta data on parameters in
-`:pharmacist.data-source/params` to mark them as dependencies on other data
-sources.
-
-### Results
-
-#### `:pharmacist.result/success?`
-
-Boolean, indicating whether or not the source was successfully loaded.
-
-#### `:pharmacist.result/data`
-
-The data loaded. If the result is not successful, this key might contain error
-information, failed HTTP requests etc.
-
-#### `:pharmacist.result/attempts`
-
-The number of attempts made to load this specific piece of data.
-
-#### `:pharmacist.result/retryable?`
-
-A boolean indicating whether or not this failure result is retryable.
-
 <a id="spa"></a>
 # Example: Page data for a single-page application
 
@@ -909,21 +832,20 @@ flow.
 
 ```clj
 (require '[pharmacist.data-source :as data-source]
-         '[pharmacist.result :as result]
-         '[pharmacist.http :as http])
+         '[pharmacist.result :as result])
 
 (def store (atom {}))
 
-(defn spotify-auth [prescription]
+(defn spotify-auth [source]
   (if-let [token (:token @store)]
     (result/success {:token token})
     (result/failure)))
 
-(defn spotify-playlist [prescription]
-  (http/http-data-source
+(defn spotify-playlist [{::data-source/keys [params]}]
+  (http-data-source
    {:method :get
     :url "https://api.spotify.com/playlists"
-    :oauth-token (-> prescription ::data-source/params :token)}))
+    :oauth-token (:token params)}))
 ```
 
 Here's the prescription:
@@ -931,7 +853,7 @@ Here's the prescription:
 ```clj
 (def prescription
   {::auth {::data-source/fn #'spotify-auth}
-   ::playlists {::data-source/fn #'spotify-playlists
+   ::playlists {::data-source/async-fn #'spotify-playlists
                 ::data-source/params {:token ^::data-source/dep [::auth :token]}}})
 ```
 
