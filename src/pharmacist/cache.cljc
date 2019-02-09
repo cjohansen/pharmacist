@@ -38,7 +38,7 @@
 (s/def ::atom-map-args (s/cat :cache ::cache))
 (s/def ::get fn?)
 (s/def ::put fn?)
-(s/def ::cache (s/keys :req-un [::get ::put]))
+(s/def ::cache-params (s/keys :req-un [::get ::put]))
 
 (defn atom-map
   "Given a ref to use as a cache, returns a map of parameters to pass as
@@ -58,4 +58,4 @@
 
 (s/fdef atom-map
   :args ::atom-map-args
-  :ret ::cache)
+  :ret ::cache-params)
