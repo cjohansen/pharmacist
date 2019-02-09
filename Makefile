@@ -7,7 +7,10 @@ autotest:
 pharmacist.jar: src/**/*.*
 	clojure -A:jar
 
+clean:
+	rm -fr target pharmacist.jar
+
 deploy: pharmacist.jar
 	mvn deploy:deploy-file -Dfile=pharmacist.jar -DrepositoryId=clojars -Durl=https://clojars.org/repo -DpomFile=pom.xml
 
-.PHONY: test autotest deploy
+.PHONY: test autotest deploy clean
