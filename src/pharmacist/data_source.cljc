@@ -12,7 +12,7 @@
 (defn fetch-playlist [source]
   (result/success {:id (-> source ::data-source/params :playlist-id)}))
 
-(def playlist
+(def playlist-data-source
   {::data-source/fn #'fetch-playlist
    ::data-source/params {:playlist-id 42}})
 ```
@@ -32,14 +32,16 @@
   value from `:pharmacist.data-source/async-fn` should be a clojure.core.async
   channel that emits a single message which should be a [[pharmacist.result]].
 
+  If the fetch function throws an exception, or otherwise fails to meet its
+  contract, the error will be wrapped in a descriptive [[parmacist.result]].
+
   ## Parameters and dependencies
 
   In its simplest form, the parameter map is just a map of values to pass to the
   fetch function. To further parameterize the data source, the parameter map can
-  also depend on values that will be provided as the full prescription is
-  filled, or even resulting values from other sources. Dependencies are declared
-  with a vector that has the `:pharmacist.data-source/dep` keyword set as
-  meta-data:
+  depend on values that will be provided as the full prescription is filled, or
+  even resulting values from other sources. Dependencies are declared with a
+  vector that has the `:pharmacist.data-source/dep` keyword set as meta-data:
 
 ```clojure
 (require '[pharmacist.data-source :as data-source])
@@ -72,8 +74,8 @@
 ```
 
   When the keys of the dependency are the same as the parameters your source
-  expects, like above (`:id` => `[:user :id]`), you can just make the whole
-  parameters a dependency:
+  expects, like above (`:id => [:user :id]`), you can just make the whole
+  parameters map a dependency:
 
 ```clj
 (def playlist
@@ -86,9 +88,10 @@
   Pharmacist can fetch collections where you don't know upfront how many sources
   you'll find. To do this you must provide two source definitions: one that
   defines a single source in the collection, and another that specifies how many
-  times to fetch that source, and parameters for each individual fetch. Imagine
-  that you wanted to fetch all of a user's playlists. First define a function
-  that receives a user and returns a vector of all their playlists:
+  times to fetch that source, and parameters for each individual fetch.
+
+  Imagine that you wanted to fetch all of a user's playlists. First define a
+  function that receives a user and returns a vector of all their playlists:
 
 ```clj
 (require '[pharmacist.result :as result])
@@ -142,6 +145,7 @@
 | `::data-source/async-fn`     | Function that fetches this source asynchronously. Should return a core.async channel that emits a single [[pharmacist.result]] |
 | `::data-source/params`       | Parameter map to pass to the fetch function |
 | `::data-source/retries`      | The number of times `::result/retryable?` results from this source can be retried |
+| `::data-source/timeout`      | The maximum number of milliseconds to wait for this source to be fetched.
 | `::data-source/coll-of`      | The type of source this source is a collection of |
 | `::data-source/cache-params` | A collection of paths to extract as the cache key, see [[pharmacist.cache/cache-params]] |
 | `::data-source/cache-deps`   | The dependencies required to compute the cache key. Usually inferred from `::data-source/cache-params`, see [[pharmacist.cache/cache-deps]] |"
@@ -229,7 +233,7 @@
       (catch #?(:clj Throwable :cljs :default) e
         (error-result e)))))
 
-(defn safe-async [f source]
+(defn ^:no-doc safe-async [f source]
   (try
     (f source)
     (catch #?(:clj Throwable :cljs :default) e
@@ -241,7 +245,7 @@
     (::fn source) (safe-sync (::fn source) source)
     :default (safe-sync fetch-sync source)))
 
-(defn safe-fetch [source]
+(defn ^:no-doc safe-fetch [source]
   (safe-async fetch source))
 
 (defmulti cache-params
@@ -294,12 +298,12 @@
 
 (defmulti cache-key
   "Given a source, return the cache key that uniquely addresses content loaded by
-  the source. The default implementation combines the id/type with the parameter
-  values selected by [[cache-params]]. It is strongly recommended to make sure
-  the source's variations are expressed as parameters so you can rely on the
-  default implementation of this method. If this is somehow not possible, you
-  can implement this method, which dispatches on a source's
-  `:pharmacist.data-source/id`, to provide a custom cache key:
+  the source. The default implementation combines the :pharmacist.data-source/id
+  with the parameter values selected by [[cache-params]]. It is strongly
+  recommended to make sure the source's variations are expressed as parameters
+  so you can rely on the default implementation of this method. If this is
+  somehow not possible, you can implement this method, which dispatches on a
+  source's `:pharmacist.data-source/id`, to provide a custom cache key:
 
 ```clojure
 (require '[pharmacist.data-source :as data-source])

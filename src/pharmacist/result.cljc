@@ -1,19 +1,37 @@
 (ns pharmacist.result
-  "Functions and specs to support construction and processing of data source
-  results."
+  "Data structures and functions to work with the result
+  of [[pharmacist.data-source]] fetch functions. A result is a map with the key
+  `:pharmacist.result/success?` (a boolean) and any number of the below keys.
+
+| `:pharmacist.result/success?`   | Boolean. Indicates successful retrieval |
+| `:pharmacist.result/data`       | The resulting data from the fetch functions |
+| `:pharmacist.result/retryable?` | A boolean indicating whether this failure is worth retrying |
+| `:pharmacist.result/refresh`    | Optional set of parameters that must be refreshed before retrying |
+
+  The following keys are set by [[pharmacist.prescription/fill]]:
+
+| `:pharmacist.result/partial?`      | `true` when the selection returned collection items, but the collection items are not yet available |
+| `:pharmacist.result/attempts`      | The number of attempts made to fetch this source |
+| `:pharmacist.result/raw-data`      | When the source has a schema that transforms `::pharmacist.result/data`, this key has the unprocessed result |
+| `:pharmacist.result/timeout-after` | The number of milliseconds at which this source was considered timed out |
+| `:pharmacist.cache/cached-at`      | Timestamp indicating when this result was originally cached |
+"
   (:require #?(:clj [clojure.spec.alpha :as s]
                :cljs [cljs.spec.alpha :as s])))
 
 (s/def ::success? boolean?)
-(s/def ::path (s/coll-of keyword?))
 (s/def ::data any?)
 (s/def ::raw-data any?)
 (s/def ::attempts number?)
 (s/def ::retryable? boolean?)
+(s/def ::partial? boolean?)
+(s/def ::refresh (s/coll-of keyword?))
+(s/def ::timeout-after number?)
 (s/def :pharmacist.cache/cached-at number?)
 
 (s/def ::result (s/keys :req [::success?]
-                        :opt [::raw-data ::data ::attempts ::retryable? :pharmacist.cache/cached-at]))
+                        :opt [::raw-data ::data ::attempts ::retryable? ::refresh
+                              ::partial? ::timeout-after :pharmacist.cache/cached-at]))
 
 (s/def ::success?-args (s/cat :result ::result))
 
@@ -32,7 +50,18 @@
                                            :config map?)))
 
 (defn success
-  "Create a successful result with data"
+  "Create a successful result with data. Optionally provide further details about
+  the result as `config`.
+
+```clj
+(require '[pharmacist.result :as result])
+
+(result/success {:data \"Yes\"} {:my.app/custom-annotation 42})
+;;=>
+;; {::result/success? true
+;;  ::result/data {:data \"Yes\"}
+;;  :my.app/custom-annotation 42}
+```"
   [data & [config]]
   (merge
    {::success? true ::data data}
