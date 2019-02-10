@@ -43,7 +43,7 @@ both synchronous and asynchronous sources. Some relevant examples include:
 - [Nested data sources](#data-begets-data)
 - [Synchronous fetches](#synchronous-fetches)
 - [API Docs](https://cljdoc.org/d/cjohansen/pharmacist/CURRENT)
-- [Example: Single-page application](#spa)
+- [Acknowledgments](#acknowledgments)
 
 ## Install
 
@@ -66,13 +66,14 @@ With Leiningen:
 
 ## Data sources
 
-To fetch data with Pharmacist you implement **data sources** - functions that
-fetch data from somewhere, provide a **prescription** - a description of how
-to invoke and coordinate data source functions, and finally select some or all
-of the described data.
+To fetch data with Pharmacist you implement functions that fetch data from
+somewhere, provide a **data source** - a description of how to invoke and
+coordinate data source functions, and then combine several sources into a
+**prescription**. Pharmacist can fill this for you, and then you select some or
+all of the described data from the result.
 
-A data source is any function that accepts a data source description and returns
-a Pharmacist result:
+A fetch function is any function that accepts a data source description and
+returns a Pharmacist result:
 
 ```clj
 (require '[pharmacist.data-source :as data-source]
@@ -91,7 +92,7 @@ a Pharmacist result:
 While you certainly could make good of use it with a single data source,
 Pharmacist is designed to alleviate the pain of coordinating multiple sources,
 so a meaningful hello world will need at least two sources. Let's define another
-one, which fetches an API token:
+fetch function, which fetches an API token:
 
 ```clj
 (defn spotify-auth [{::data-source/keys [params]}]
@@ -119,6 +120,7 @@ auth data source as a parameter to the one fetching playlists. This is what the
 
    ::playlists {::data-source/fn #'spotify-playlists
                 ::data-source/params {:token ^::data-source/dep [::auth :access_token]}}})
+
 ```
 
 Inlining the username and password is a terrible idea, we'll see [a better
@@ -150,14 +152,15 @@ To fetch data, pass the prescription to `pharmacist.prescription/fill`, and then
       (recur))))
 ```
 
-`fill` returns a lazy collection of your data. You may `select` from it multiple
-times, but it will always give you the same data back. `select` returns a
-`core.async` channel that receives a message every time a single data source is
-attempted fetched. If you'd rather get everything in one go, you can use
+`fill` returns a deferred realization of your data. You may `select` from it
+multiple times, but it will always give you the same data back. `select` returns
+a `core.async` channel that receives a message every time a single data source
+is attempted fetched. If you'd rather get everything in one go, you can use
 `collect`:
 
 ```clj
 (require '[pharmacist.prescription :as p]
+         '[pharmacist.result :as result]
          '[clojure.core.async :refer [go <!]])
 
 (go
@@ -166,7 +169,7 @@ attempted fetched. If you'd rather get everything in one go, you can use
 ```
 
 `collect` returns a channel that emits a single message containing an overall
-success indicator (`::result/succes?`), a combined map of `{path data}` for all
+success indicator (`::result/success?`), a combined map of `{path data}` for all
 successfully fetched data sources (`::result/data`), and a list of all sources
 with their individual results (including for sources that where never attempted
 fetched due to failing dependencies). For the above example, `::result/data` in
@@ -235,9 +238,9 @@ And this is how you fill it with runtime configuration:
      <!!))
 ```
 
-There are no magical or conventional names here. Any key inside the map passed
-to `:params` will be available as a dependency in your prescription, and you
-access information from in just like other data sources.
+There are no magical or conventional names here. Any key in the `:params` map
+will be available as a dependency in your prescription, and you access
+information from it just like other data sources.
 
 If all of a source's params are already neatly available as a map from another
 resource, declare the full map as a dependency:
@@ -490,60 +493,70 @@ how to map names. It also serves as documentation of the parts of an external
 source of data your app is concerned with:
 
 ```clj
+(require '[pharmacist.data-source :as data-source]
+         '[pharmacist.schema :as schema]
+         '[clojure.spec.alpha :as s])
+
+(defn- unqualified [m k]
+  (get m (keyword (name k))))
+
 (def playlist
   {::data-source/fn #'spotify/playlists
    ::data-source/params {:token ^::data-source/dep [::auth :access_token]
                          :id ^::data-source/dep [::playlist-id]}
    ::data-source/schema
-   {:image/url {::schema/spec string? ;; 1
-                ::schema/source :url} ;; 2
-    :image/width {::schema/spec int?
-                  ::schema/source :width
-                  ::schema/coerce parse-int} ;; 3
-    :image/height {::schema/spec int?
-                   ::schema/source :height}
-
+   {::schema/entity {::schema/spec (s/keys :req [:playlist/id ;; 1
+                                                 :playlist/collaborative
+                                                 :playlist/title
+                                                 :playlist/images])}
     :playlist/id {::schema/unique ::schema/identity
-                  ::schema/source schema/infer-ns} ;; 4
+                  ::schema/source unqualified} ;; 2
     :playlist/collaborative {::schema/spec boolean?
                              ::schema/source :collaborative}
     :playlist/title {::schema/spec string?
-                     ::schema/source :name} ;; 5
-    :playlist/image {::schema/spec (s/keys :req [:image/url :image/width :image/height])} ;; 6
+                     ::schema/source :name} ;; 3
     :playlist/images {::schema/spec (s/coll-of :playlist/image)
-                      ::schema/source :images} ;; 7
-    ::schema/entity {::schema/spec (s/keys :req [:playlist/id ;; 8
-                                                 :playlist/collaborative
-                                                 :playlist/title
-                                                 :playlist/images])}}})
+                      ::schema/source :images} ;; 4
+    :playlist/image {::schema/spec (s/keys :req [:image/url
+                                                 :image/width
+                                                 :image/height])} ;; 5
+
+    :image/url {::schema/spec string? ;; 6
+                ::schema/source :url}
+    :image/width {::schema/spec int?
+                  ::schema/source :width
+                  ::schema/coerce parse-int} ;; 7
+    :image/height {::schema/spec int?
+                   ::schema/source :height
+                   ::schema/coerce parse-int}}})
 ```
 
-1. A `clojure.spec.alpha` spec for `:image/url`. Provides documentation, and can
+1. By convention, the schema is expected to define `:pharmacist.schema/entity`
+   as either a map or collection spec, and this key is used to map the root
+   data. If this convention does not suit your needs, you can implement
+   `pharmacist.schema/coerce-data` and provide another root spec, see the
+   [API docs](https://cljdoc.org/d/cjohansen/pharmacist/CURRENT/api/pharmacist.schema#coerce-data).
+2. `::schema/source` allows you to rename a key. The function will be passed the
+   current root data along with the key it is extracting (`:playlist/id`) in
+   this case. The `unqualified` function retrieves the value of `:id`. This
+   effectively renames `:id` to `:playlist/id`. `::schema/source` can also be
+   used to transform data, e.g. by parsing string data, etc.
+3. Simple key renamings can be achieved by setting `::schema/source` to a key to
+   look up in the remote data. This shows an example of mapping `:name` in the
+   API payload to `:playlist/title` in our local data.
+4. Collection specs inform Pharmacist to loop through `:images` (because of the
+   `::schema/source)` in the payload and map each one with the keys in the
+   `:playlist/image` key spec.
+5. Key specs inform Pharmacist to look up and map nested data structures. In
+   this case, each item in the `:images` collection will be mapped with the
+   three keys in the spec.
+6. A `clojure.spec.alpha` spec for `:image/url`. Provides documentation, and can
    be used with asserts during development to verify assumptions about external
    data.
-2. When consuming external data, it is often nice to be able to map keys to
-   idiomatic Clojure names, or, as in this case, to provide a namespace for the
-   key. This instructs Pharmacist to populate the `:image/url` key in the
-   resulting data from the `:url` attribute of the source data.
-3. `::schema/coerce` can be set to any function that takes a single argument -
+7. `::schema/coerce` can be set to any function that takes a single argument -
    the value to coerce - and returns a coerced value. If you are enforcing specs
    during development, the coercer should produce a value that is compatible
    with the spec.
-4. Some key mappings can be mechanically inferred. Pharmacist provides
-   convenience functions for inferral, e.g. `schema/infer-ns` infers a
-   namespaced key from its bare counterpart. In this case, `:playlist/id` will
-   be populated from `:id`. The `::schema/source` function is called with a map
-   and a key.
-5. Remote keys can be completely renamed as well. This shows an example of
-   mapping `:name` in the API payload to `:playlist/title` in our local data.
-6. Key specs inform Pharmacist to look up and map nested data structures
-7. Collection specs inform Pharmacist to loop through `:images` in the payload
-   and map each one with the keys in the `:playlist/image` key spec.
-8. By convention, the schema is expected to define `:pharmacist.schema/entity`
-   as either a map or collection spec, and this key is used to map the root
-   data. If this convention does not suit your needs, you can implement
-   `pharmacist.schema/coerce-data` and provide another root spec, see the API
-   docs.
 
 With this schema in place, data from this source will be automatically mapped
 when you call `prescription/fill`. You can further utilize this schema if you
@@ -658,7 +671,12 @@ we'll define the movie and the person, with their schemas for coercion:
    {::data-source/fn #'ghibli-film
     ::data-source/params {:id ^::data-source/dep [:movie-id]}
     ::data-source/schema
-    {:movie/id {::schema/unique ::schema/identity
+    {::schema/entity {::schema/spec (s/keys :req [:movie/id
+                                                  :movie/title
+                                                  :movie/description
+                                                  :movie/release-date
+                                                  :movie/people])}
+     :movie/id {::schema/unique ::schema/identity
                 ::schema/spec uuid?
                 ::schema/coerce uuid
                 ::schema/source :id}
@@ -668,26 +686,28 @@ we'll define the movie and the person, with their schemas for coercion:
                          ::schema/source :description}
      :movie/release-date {::schema/spec string?
                           ::schema/source :release_date}
-     :movie/people {::schema/spec (s/coll-of string?)}
-     ::schema/entity {::schema/spec (s/keys :req [:movie/id
-                                                  :movie/title
-                                                  :movie/description
-                                                  :movie/release-date
-                                                  :movie/people])}}}
+     :movie/people {::schema/spec (s/coll-of string?)
+                    ::schema/source :people} ;; The collection of URLs
+     }}
 
    :person
    {::data-source/fn #'ghibli-person
+    ;; Depending on the URL here is not strictly necessary, but it documents
+    ;; the parameter expected by the function and makes the source usable
+    ;; outside of the collection as well
     ::data-source/params {:url ^::data-source/dep [:url]}
     ::data-source/schema
-    {:person/id {::schema/unique ::schema/identity
+    {::schema/entity {::schema/spec (s/keys :req [:person/id
+                                                  :person/name
+                                                  :person/age])}
+     :person/id {::schema/unique ::schema/identity
                  ::schema/spec uuid?
                  ::schema/coerce uuid
                  ::schema/source :id}
      :person/name {::schema/spec string?
                    ::schema/source :name}
      :person/age {::schema/spec number?
-                  ::schema/source :age}
-     ::schema/entity {}}}})
+                  ::schema/source :age}}}})
 ```
 
 Finally, the collection source:
@@ -701,7 +721,7 @@ Finally, the collection source:
     ::data-source/coll-of :person}})
 ```
 
-Finally, let's fetch My Neighbour Totoro with all of its people:
+Now we can fetch My Neighbour Totoro with all of its people:
 
 ```clj
 (require '[pharmacist.prescription :as prescription])
@@ -709,24 +729,55 @@ Finally, let's fetch My Neighbour Totoro with all of its people:
 (-> prescription
     (prescription/fill
      {:params {:movie-id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"}})
-    (prescription/select [:people]))
+    (prescription/select [:people])
+    prescription/collect)
 ```
 
-Now, when a person is fetched, your channel will receive a message like:
+`collect` returns a `clojure.core.async` channel that emits a single message,
+which looks like this:
+
+```
+(require '[pharmacist.result :as result])
+
+{::result/success? true
+ ::result/sources [...]
+ ::result/data
+ {:movie {:movie/id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"
+          :movie/title "My Neighbour Totoro"
+          ;;...
+          :movie/people
+          ["https://ghibliapi.herokuapp.com/people/986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
+           ;;...
+           ]}
+  :people [{:person/id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
+            :person/name "Satsuki Kusakabe"
+            :person/age "11"}
+           ;;...
+           ]}}
+```
+
+Note that `::result/success?` indicates whether or not all sources succeeded.
+Even if it is `false` there may be partial data in `::result/data`. The events
+in `::result/sources` can help you understand why/how something failed - it will
+also inform you of sources that was attempted multiple times, etc.
+
+Individual messages like the ones in `::result/sources` look like:
 
 ```clj
-{::result/path [:movie :movie/people 0]
+{::result/path [:people 0]
  ::result/success? true
  ::result/data {:person/id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
                 :person/name "Satsuki Kusakabe"
                 :person/age "11"}}
 ```
 
-You can combine all of these events into a single map using
-`pharmacist.prescription/merge-sources`:
+If you want, you can consume these individual messages as soon as they become
+available, then merge the result data with
+`pharmacist.prescription/merge-results`:
 
 ```clj
 (require '[pharmacist.prescription :as prescription]
+         '[pharmacist.result :as result]
          '[clojure.core.async :as a])
 
 (let [ch (-> prescription
@@ -735,32 +786,11 @@ You can combine all of these events into a single map using
              (prescription/select [:people]))
       messages (a/go-loop [messages []]
                  (when-let [message (a/<! ch)]
+                   (when-not (result/success? (:result message))
+                     (println "Failed to fetch" (:path message)))
                    (recur (conj messages message))))]
-  (prescription/merge-results messages)
-  ;;=>
-  {:movie {:movie/id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"
-           :movie/title "My Neighbour Totoro"
-           ;;...
-           :movie/people [{:person/id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
-                           :person/name "Satsuki Kusakabe"
-                           :person/age "11"}
-                          ;;...
-                          ]}})
+  (prescription/merge-results messages))
 ```
-
-If you don't care about consuming the messages at your earliest convenience,
-`pharmacist.prescription/collect` can collect all of them for you:
-
-```clj
-(-> prescription
-     (prescription/fill
-      {:params {:movie-id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"}})
-     (prescription/select [:people])
-     (prescription/collect))
-```
-
-`collect` returns a channel that emits a single message, where `::result/data`
-is the result of passing all the messages through `merge-results`.
 
 # Synchronous fetches
 
@@ -894,3 +924,10 @@ probably want to check this more rigorously.
 
 The `let` block will return the channel from the `go-loop`, which you can read
 the full result set from if all goes well.
+
+## Acknowledgments
+
+Huge thanks to [Magnar Sveen](https://kodemaker.no/magnar/) for hammocking with
+me to flesh out the API design, reviewing early sketches, reading and providing
+input on documentation, and generally contributing his amazing mind to the
+development of this library.
