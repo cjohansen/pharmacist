@@ -309,6 +309,11 @@
        (merge prescription nested (mapvals #(dissoc % ::data-source/deps ::data-source/cache-deps) retryable))
        (restore-refreshes refresh)))
 
+(defn- unseq [data]
+  (if (seq? data)
+    (into [] data)
+    data))
+
 (defn- merge-collection-results [results loaded]
   (->> results
        (filter #(-> % :source ::data-source/in-coll))
@@ -323,7 +328,8 @@
   (apply
    dissoc
    (->> batch-results
-        (map (fn [{:keys [path source result]}] [path result]))
+        (map (fn [{:keys [path source result]}]
+               [path (update result ::result/data unseq)]))
         (into {})
         (merge results)
         (merge-collection-results batch-results))
@@ -531,11 +537,6 @@
        (into {})
        (map second)
        (reduce #(and %1 %2) true)))
-
-(defn- unseq [data]
-  (if (seq? data)
-    (into [] data)
-    data))
 
 (defn merge-results
   "Given `results`, a collection of messages as received from the channel

@@ -1135,8 +1135,8 @@
                                  ::data-source/params {:some "facility"}}
                       :facilities {::data-source/coll-of :facility
                                    ::data-source/fn #'get-facility-ids
-                                   ::data-source/params {:ids [{:facility-id 1}
-                                                               {:facility-id 2}]}}}
+                                   ::data-source/params {:ids (seq [{:facility-id 1}
+                                                                    {:facility-id 2}])}}}
                      sut/fill
                      (sut/select [:facilities])
                      exhaust
