@@ -4,16 +4,16 @@
             [clojure.spec.alpha :as s]
             [pharmacist.data-source :as data-source]))
 
-(s/def ::path (s/coll-of keyword?))
-(s/def ::prescription (s/keys :req [::data-source/id ::data-source/params]))
+(s/def ::path (s/coll-of (s/or :keyword keyword? :number number?)))
+(s/def ::source (s/keys :req [::data-source/id ::data-source/params]))
 (s/def ::cache #(instance? clojure.lang.IRef %))
-(s/def ::cache-get-args (s/cat :cache ::cache :path ::path :prescription ::prescription))
+(s/def ::cache-get-args (s/cat :cache ::cache :path ::path :source ::source))
 
 (defn cache-get
-  "Look up data source in the cache. Expects all parameters in `prescription` to
+  "Look up data source in the cache. Expects all parameters in `source` to
   be dependency resolved and fully realized."
-  [cache path prescription]
-  (get @cache (data-source/cache-key prescription)))
+  [cache path source]
+  (get @cache (data-source/cache-key source)))
 
 (s/fdef cache-get
   :args ::cache-get-args
@@ -21,14 +21,14 @@
 
 (s/def ::cache-put-args (s/cat :cache ::cache
                                :path ::path
-                               :prescription ::prescription
+                               :source ::source
                                :value any?))
 
 (defn cache-put
-  "Put item in cache. Expects all parameters in `prescription` to be dependency
+  "Put item in cache. Expects all parameters in `source` to be dependency
   resolved and fully realized."
-  [cache path prescription value]
-  (swap! cache assoc (data-source/cache-key prescription) value)
+  [cache path source value]
+  (swap! cache assoc (data-source/cache-key source) value)
   nil)
 
 (s/fdef cache-put
