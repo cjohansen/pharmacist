@@ -36,8 +36,8 @@
   :ret nil?)
 
 (s/def ::atom-map-args (s/cat :cache ::cache))
-(s/def ::get fn?)
-(s/def ::put fn?)
+(s/def ::get ifn?)
+(s/def ::put ifn?)
 (s/def ::cache-params (s/keys :req-un [::get ::put]))
 
 (defn atom-map

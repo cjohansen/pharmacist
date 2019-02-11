@@ -159,8 +159,8 @@
             [pharmacist.result :as result]))
 
 (s/def ::id keyword?)
-(s/def ::fn fn?)
-(s/def ::async-fn fn?)
+(s/def ::fn ifn?)
+(s/def ::async-fn ifn?)
 (s/def ::params (s/or :dependency (s/coll-of keyword?)
                       :map map?))
 (s/def ::retries number?)
