@@ -11,8 +11,8 @@ tedious error handling and retries, or mapping.
 
 Pharmacist helps you:
 
-- Isolate side-effecting "data sources" like HTTP requests in single-purpose
-  functions
+- Isolate async and/or fallible "data sources" like HTTP requests in
+  single-purpose functions
 - Declaratively describe required data sources, optionally with inter-source
   dependencies
 - Control error handling and retries declaratively
@@ -20,14 +20,14 @@ Pharmacist helps you:
 - Run development-time validations on external data to verify your expectations
 - Optionally configure caching across data sources
 - Recursively fetch nested data sources
-- Generate Datascript schema for fetched data
 - Consume data as it becomes available, or wait for the entire dataset
 
-Pharmacist coordinates data fetches, it does not actually implement fetching. It
-can fetch anything for you by coordinating your functions - it can work with
-both synchronous and asynchronous sources. Some relevant examples include:
+Pharmacist does not implement any specific kinds of fetches - it is not an HTTP
+client. It can fetch anything for you by coordinating functions you provide - it
+can work with synchronous and asynchronous sources alike. Some relevant examples
+include:
 
-* Data from the network
+* Data from HTTP APIs
 * Data from disk
 * Data from global vars (e.g. app-wide atoms)
 * Data from the browser's localStorage
@@ -44,13 +44,14 @@ both synchronous and asynchronous sources. Some relevant examples include:
 - [Synchronous fetches](#synchronous-fetches)
 - [API Docs](https://cljdoc.org/d/cjohansen/pharmacist/CURRENT)
 - [Acknowledgments](#acknowledgments)
+- [Integration with Datascript](#integration-with-datascript)
 
 ## Install
 
 **NB!** The goal is for Pharmacist to become a stable library worthy of your
 trust, which never intentionally breaks backwards compatibility. Currently,
-however, it is still under development, and slight changes may occur. This will
-be the case for as long as the version is prefixed with a `0`.
+however, it is still under development, and breaking changes should be expected.
+This will be the case for as long as the version is prefixed with a `0`.
 
 With tools.deps:
 
@@ -152,7 +153,11 @@ To fetch data, pass the prescription to `pharmacist.prescription/fill`, and then
       (recur))))
 ```
 
-`fill` returns a deferred realization of your data. You may `select` from it
+`fill` returns a deferred realization of your data. To consume data from it,
+call `select`, specifying the keys you
+
+
+You may `select` from it
 multiple times, but it will always give you the same data back. `select` returns
 a `core.async` channel that receives a message every time a single data source
 is attempted fetched. If you'd rather get everything in one go, you can use
@@ -931,3 +936,7 @@ Huge thanks to [Magnar Sveen](https://kodemaker.no/magnar/) for hammocking with
 me to flesh out the API design, reviewing early sketches, reading and providing
 input on documentation, and generally contributing his amazing mind to the
 development of this library.
+
+## Integration with Datascript
+
+Pharmacist pairs very well with Datascript.
