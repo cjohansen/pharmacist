@@ -1335,32 +1335,37 @@
                   (into #{}))
              #{:user :facilities [:facilities 0]})))))
 
+(defn thing [{::data-source/keys [params]}]
+  (result/success
+   (if (= 1 (:item-id params))
+     {:id "Thingy"}
+     {:id "Other thing"})))
+
 (defscenario-async "Passes source with fully resolved nested sources as dependency"
   (go
     (is (= (filter #(= :collection (:path %))
-                   (-> {:facility {::data-source/fn #'echo-params
-                                 ::data-source/params {:some "facility"}}
+                   (-> {:item {::data-source/fn #'thing}
 
-                      :facilities {::data-source/coll-of :facility
-                                   ::data-source/fn #'get-facility-ids
-                                   ::data-source/params {:ids [{:facility-id 1}
-                                                               {:facility-id 2}]}}
+                        :items {::data-source/coll-of :item
+                                ::data-source/fn #'get-facility-ids
+                                ::data-source/params {:ids [{:item-id 1}
+                                                            {:item-id 2}]}}
 
-                      :collection {::data-source/id ::collection
-                                   ::data-source/fn #'echo-params
-                                   ::data-source/params {:facilities ^::data-source/dep [:facilities]}}}
-                     sut/fill
-                     (sut/select [:collection])
-                     exhaust
-                     <!))
+                        :collection {::data-source/id ::collection
+                                     ::data-source/fn #'echo-params
+                                     ::data-source/params {:items ^::data-source/dep [:items]}}}
+                       sut/fill
+                       (sut/select [:collection])
+                       exhaust
+                       <!))
            [{:path :collection
              :source {::data-source/id ::collection
-                      ::data-source/params {:facilities [{:some "facility" :facility-id 1}
-                                                         {:some "facility" :facility-id 2}]}
-                      ::data-source/deps #{:facilities}}
+                      ::data-source/params {:items [{:id "Thingy"}
+                                                    {:id "Other thing"}]}
+                      ::data-source/deps #{:items}}
              :result {::result/success? true
-                      ::result/data {:facilities [{:some "facility" :facility-id 1}
-                                                  {:some "facility" :facility-id 2}]}
+                      ::result/data {:items [{:id "Thingy"}
+                                             {:id "Other thing"}]}
                       ::result/attempts 1}}]))))
 
 (defscenario-async "Gracefully fails lazy seq in place of proper result"

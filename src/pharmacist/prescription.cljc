@@ -321,7 +321,7 @@
         (fn [loaded {:keys [path source result]}]
           (let [coll (::data-source/in-coll source)
                 path (concat [coll ::result/data] (rest path))]
-            (update-in loaded path merge (::result/data result))))
+            (assoc-in loaded path (::result/data result))))
         loaded)))
 
 (defn- update-results [results batch-results refresh]
