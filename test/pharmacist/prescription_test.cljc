@@ -1406,6 +1406,26 @@
                        ::result/data [{:facility-id 1}]
                        ::result/attempts 1}}}))))
 
+(defscenario-async "Selects realized collection from previously filled prescription"
+  (go
+    (stub stub-1 [{:facility "OK"}])
+    (let [filled (-> {:facility {::data-source/fn #'echo-stub-1}
+                      :facilities {::data-source/coll-of :facility
+                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/params {:ids (seq [{:facility-id 1}])}}}
+                     sut/fill)]
+      (<! (sut/collect (sut/select filled [:facilities])))
+      (is (= (into #{}
+                   (<! (exhaust (sut/select filled [:facilities]))))
+             #{{:path :facilities
+                :source {::data-source/id ::get-facility-ids
+                         ::data-source/params {:ids [{:facility-id 1}]}
+                         ::data-source/coll-of :facility
+                         ::data-source/deps #{}}
+                :result {::result/success? true
+                         ::result/data [{:facility "OK"}]
+                         ::result/attempts 1}}})))))
+
 (defscenario-async "Gracefully fails lazy seq in place of proper result"
   (go
     (is (= (<! (-> {:data {::data-source/id ::lazy-seq-fail

@@ -487,6 +487,13 @@
                                (fetch-sources opt ch result loaded prescription ks)
                                (expand-selection loaded prescription ks))]
                 (let [{:keys [loaded prescription ks]} (a/<! res)]
+                  (swap! result merge
+                         (->> @result
+                              (filter #(-> % second ::result/partial?))
+                              (map first)
+                              (select-keys loaded)
+                              (remove #(-> % second ::result/partial?))
+                              (into {})))
                   (recur loaded prescription ks))
                 (let [resolved (resolve-deps prescription (pending loaded ks))]
                   (doseq [k (pending loaded (keys resolved))]
