@@ -1,6 +1,5 @@
 (ns pharmacist.cljs-test-helper
-  (:require [clojure.core.async :refer [go]]
-            [pharmacist.test-helper :refer [test-name]]))
+  (:require [pharmacist.test-helper :refer [test-name]]))
 
 (defmacro defscenario-async [scenario body]
   `(cljs.test/deftest ~(test-name scenario)
