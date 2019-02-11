@@ -214,6 +214,14 @@
     (when (and (number? timeout) (< 0 timeout))
       timeout)))
 
+(defn- partial? [{:keys [source result]}]
+  (and (::data-source/coll-of source)
+       (not (empty? (::result/data result)))))
+
+(defn- cache-result [cache {:keys [path source result] :as message}]
+  (when (and (ifn? (:put cache)) (result/success? result))
+    ((:put cache) path source (assoc result :pharmacist.cache/cached-at (now)))))
+
 (defn- fetch [{:keys [cache timeout]} path source]
   (a/go
     (let [attempts (inc (get source ::result/attempts 0))
@@ -222,9 +230,8 @@
                    :path path
                    :result (prep-result source (a/<! (safe-take (data-source/safe-fetch source)
                                                                 (get-timeout source timeout))))}]
-      (when (and (ifn? (:put cache)) (result/success? (:result message)))
-        ((:put cache) (->path path) (:source message) (assoc (:result message)
-                                                             :pharmacist.cache/cached-at (now))))
+      (when-not (partial? message)
+        (cache-result cache message))
       message)))
 
 (defn- params->deps [{::data-source/keys [original-params]} params]
@@ -244,8 +251,7 @@
       (let [[val port] (a/alts! ports)]
         (if (nil? val)
           (recur (remove #(= % port) ports) res)
-          (let [val (if (and (::data-source/coll-of (:source val))
-                             (not (empty? (::result/data (:result val)))))
+          (let [val (if (partial? val)
                       (assoc-in val [:result ::result/partial?] true)
                       val)]
             (a/>! ch (update val :source prep-source))
@@ -373,7 +379,7 @@
          (map #(vector % (get resolved %)))
          (remove #(seq (cache-deps (second %))))
          (map (fn [[k source]]
-                (when-let [result (cache-get (->path k) source)]
+                (when-let [result (cache-get k source)]
                   {:path k
                    :source source
                    :result (assoc result
@@ -448,6 +454,17 @@
       (let [[results retryable] (a/<! (realize-results ch result reqs))]
         (process-batch-results opt loaded prescription ks results retryable)))))
 
+(defn- cache-completed-collections [{:keys [cache]} result loaded prescription]
+  (let [completed (->> @result
+                       (filter #(-> % second ::result/partial?))
+                       (map first)
+                       (select-keys loaded)
+                       (remove #(-> % second ::result/partial?))
+                       (into {}))]
+    (doseq [[path result] (remove #(-> % second ::result/cached?) completed)]
+      (cache-result cache {:path path :source (prescription path) :result result}))
+    (swap! result merge completed)))
+
 (defn fill
   "Fills a prescription. Returns a lazy representation of the result, from which
   you can [[select]] several times, while only fetching each source at most
@@ -486,13 +503,7 @@
                                (fetch-sources opt ch result loaded prescription ks)
                                (expand-selection loaded prescription ks))]
                 (let [{:keys [loaded prescription ks]} (a/<! res)]
-                  (swap! result merge
-                         (->> @result
-                              (filter #(-> % second ::result/partial?))
-                              (map first)
-                              (select-keys loaded)
-                              (remove #(-> % second ::result/partial?))
-                              (into {})))
+                  (cache-completed-collections opt result loaded prescription)
                   (recur loaded prescription ks))
                 (let [resolved (resolve-deps prescription (pending loaded ks))]
                   (doseq [k (pending loaded (keys resolved))]

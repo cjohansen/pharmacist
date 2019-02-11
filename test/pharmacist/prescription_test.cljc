@@ -1426,6 +1426,35 @@
                          ::result/data [{:facility "OK"}]
                          ::result/attempts 1}}})))))
 
+(defscenario-async "Cache stores fully resolved collection"
+  (go
+    (stub stub-1 [{:facility "OK"}])
+    (let [prescription {:facility {::data-source/fn #'echo-stub-1}
+                        :facilities {::data-source/coll-of :facility
+                                     ::data-source/fn #'get-facility-ids
+                                     ::data-source/params {:ids (seq [{:facility-id 1}])}}}
+          cache (atom {})]
+      (-> (sut/fill prescription {:cache (cache/atom-map cache)})
+          (sut/select [:facilities])
+          exhaust
+          <!)
+      (is (= (-> (sut/fill prescription {:cache (cache/atom-map cache)})
+                 (sut/select [:facilities])
+                 sut/collect
+                 <!
+                 ::result/sources
+                 first
+                 (update :result dissoc ::cache/cached-at))
+             {:path :facilities
+              :result {::result/attempts 0
+                       ::result/data [{:facility "OK"}]
+                       ::result/success? true
+                       ::result/cached? true}
+              :source {::data-source/coll-of :facility
+                       ::data-source/deps #{}
+                       ::data-source/id ::get-facility-ids
+                       ::data-source/params {:ids [{:facility-id 1}]}}})))))
+
 (defscenario-async "Tracks indices per collection"
   (go
     (stub stub-1 [[{:id 1}]])
