@@ -1368,6 +1368,44 @@
                                              {:id "Other thing"}]}
                       ::result/attempts 1}}]))))
 
+(defscenario-async "Fails collection source when a collection item fails"
+  (go
+    (stub stub-2 [(result/failure)])
+    (is (= (into #{}
+                 (-> {:facility {::data-source/fn #'echo-stub-2}
+                      :facilities {::data-source/coll-of :facility
+                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/params {:ids (seq [{:facility-id 1}])}}}
+                     sut/fill
+                     (sut/select [:facilities])
+                     exhaust
+                     <!))
+           #{{:path :facilities
+              :source {::data-source/id ::get-facility-ids
+                       ::data-source/params {:ids [{:facility-id 1}]}
+                       ::data-source/coll-of :facility
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/partial? true
+                       ::result/data [{:facility-id 1}]
+                       ::result/attempts 1}}
+             {:path [:facilities 0]
+              :source {::data-source/id ::echo-stub-2
+                       ::data-source/params {:facility-id 1}
+                       ::data-source/deps #{}
+                       ::data-source/in-coll :facilities}
+              :result {::result/success? false
+                       ::result/retrying? false
+                       ::result/attempts 1}}
+             {:path :facilities
+              :source {::data-source/id ::get-facility-ids
+                       ::data-source/params {:ids [{:facility-id 1}]}
+                       ::data-source/coll-of :facility
+                       ::data-source/deps #{[:facilities 0]}}
+              :result {::result/success? false
+                       ::result/data [{:facility-id 1}]
+                       ::result/attempts 1}}}))))
+
 (defscenario-async "Gracefully fails lazy seq in place of proper result"
   (go
     (is (= (<! (-> {:data {::data-source/id ::lazy-seq-fail
