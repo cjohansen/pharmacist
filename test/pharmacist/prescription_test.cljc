@@ -1426,6 +1426,28 @@
                          ::result/data [{:facility "OK"}]
                          ::result/attempts 1}}})))))
 
+(defscenario-async "Tracks indices per collection"
+  (go
+    (stub stub-1 [[{:id 1}]])
+    (stub stub-2 [(result/success [{:id 10}])])
+    (let [filled (-> {:pizza {::data-source/fn #'echo-params}
+                      :hotdog {::data-source/fn #'echo-params}
+                      :pizza-meals {::data-source/coll-of :pizza
+                                    ::data-source/fn #'echo-stub-1}
+                      :hotdog-meals {::data-source/coll-of :hotdog
+                                     ::data-source/fn #'echo-stub-2}}
+                     sut/fill)]
+      (is (= (->> (sut/select filled [:pizza-meals :hotdog-meals])
+                  sut/collect
+                  <!
+                  ::result/sources
+                  (map :path)
+                  (into #{}))
+             #{:pizza-meals
+               [:pizza-meals 0]
+               :hotdog-meals
+               [:hotdog-meals 0]})))))
+
 (defscenario-async "Gracefully fails lazy seq in place of proper result"
   (go
     (is (= (<! (-> {:data {::data-source/id ::lazy-seq-fail

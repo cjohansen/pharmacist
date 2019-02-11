@@ -291,10 +291,9 @@
            (map (fn [{:keys [path source]}] [path source]))
            (into {}))
       (->> eligible
-           (mapcat #(coll-items prescription %))
-           (map-indexed
-            (fn [idx {:keys [path source]}]
-              [[path idx] source]))
+           (map #(coll-items prescription %))
+           (mapcat #(map-indexed (fn [idx {:keys [path source]}]
+                                   [[path idx] source]) %))
            (into {})))))
 
 (defn- restore-refreshes [refreshes prescription]
