@@ -526,7 +526,7 @@
   (let [result (atom (mapvals result/success (:params opt)))
         prescription (mapvals ensure-id prescription)]
     (fn [ks]
-      (let [ch (a/chan)]
+      (let [ch (a/chan 512)]
         (a/go
           (doseq [[path result] (select-keys @result ks)]
             (a/>! ch {:source (prep-source (prescription path))

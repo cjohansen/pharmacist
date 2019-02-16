@@ -1,6 +1,6 @@
 (ns pharmacist.prescription-test
-  (:require #?(:clj [clojure.core.async :refer [<! <!! go go-loop timeout alts!]]
-               :cljs [cljs.core.async :refer [<! go go-loop timeout alts!]])
+  (:require #?(:clj [clojure.core.async :refer [<! <!! go go-loop timeout close!]]
+               :cljs [cljs.core.async :refer [<! go go-loop timeout close!]])
             #?(:clj [clojure.spec.alpha :as s]
                :cljs [cljs.spec.alpha :as s])
             #?(:clj [clojure.test :refer [is]]
@@ -69,7 +69,7 @@
 (defn doubled [{::data-source/keys [params]}]
   (result/success (* (:number params) 2)))
 
-(defn get-facility-ids [{::data-source/keys [params]}]
+(defn get-ids [{::data-source/keys [params]}]
   (result/success (:ids params)))
 
 (defn now []
@@ -1154,14 +1154,14 @@
                  (-> {:facility {::data-source/fn #'echo-params
                                  ::data-source/params {:some "facility"}}
                       :facilities {::data-source/coll-of :facility
-                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/fn #'get-ids
                                    ::data-source/params {:ids []}}}
                      sut/fill
                      (sut/select [:facilities])
                      exhaust
                      <!))
            #{{:path :facilities
-               :source {::data-source/id ::get-facility-ids
+               :source {::data-source/id ::get-ids
                         ::data-source/params {:ids []}
                         ::data-source/coll-of :facility
                         ::data-source/deps #{}}
@@ -1175,7 +1175,7 @@
                  (-> {:facility {::data-source/fn #'echo-params
                                  ::data-source/params {:some "facility"}}
                       :facilities {::data-source/coll-of :facility
-                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/fn #'get-ids
                                    ::data-source/params {:ids (seq [{:facility-id 1}
                                                                     {:facility-id 2}])}}}
                      sut/fill
@@ -1183,7 +1183,7 @@
                      exhaust
                      <!))
            #{{:path :facilities
-              :source {::data-source/id ::get-facility-ids
+              :source {::data-source/id ::get-ids
                        ::data-source/params {:ids [{:facility-id 1}
                                                    {:facility-id 2}]}
                        ::data-source/coll-of :facility
@@ -1214,7 +1214,7 @@
                                       :facility-id 2}
                        ::result/attempts 1}}
              {:path :facilities
-              :source {::data-source/id ::get-facility-ids
+              :source {::data-source/id ::get-ids
                        ::data-source/params {:ids [{:facility-id 1}
                                                    {:facility-id 2}]}
                        ::data-source/coll-of :facility
@@ -1231,7 +1231,7 @@
                                  ::data-source/params {:some "facility"}}
 
                       :facilities {::data-source/coll-of :facility
-                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/fn #'get-ids
                                    ::data-source/params {:ids {:first {:facility-id 1}
                                                                :second {:facility-id 2}}}}}
                      sut/fill
@@ -1239,7 +1239,7 @@
                      exhaust
                      <!))
            #{{:path :facilities
-               :source {::data-source/id ::get-facility-ids
+               :source {::data-source/id ::get-ids
                         ::data-source/params {:ids {:first {:facility-id 1}
                                                     :second {:facility-id 2}}}
                         ::data-source/coll-of :facility
@@ -1270,7 +1270,7 @@
                                       :facility-id 2}
                        ::result/attempts 1}}
              {:path :facilities
-              :source {::data-source/id ::get-facility-ids
+              :source {::data-source/id ::get-ids
                        ::data-source/params {:ids {:first {:facility-id 1}
                                                    :second {:facility-id 2}}}
                        ::data-source/coll-of :facility
@@ -1292,7 +1292,7 @@
                                                        :facility-id ^::data-source/dep [:facility-id :id]}}
 
                       :facilities {::data-source/coll-of :facility
-                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/fn #'get-ids
                                    ::data-source/params {:ids [{:facility-id 1}]}}}]
     (go
       (is (= (into #{}
@@ -1325,7 +1325,7 @@
                          ::result/data {:user {:id 13}
                                         :facility-id 1337}}}
                {:path :facilities
-                :source {::data-source/id ::get-facility-ids
+                :source {::data-source/id ::get-ids
                          ::data-source/params {:ids [{:facility-id 1}]}
                          ::data-source/coll-of :facility
                          ::data-source/deps #{}}
@@ -1344,7 +1344,7 @@
                                         :facility-id 1}
                          ::result/attempts 1}}
                {:path :facilities
-                :source {::data-source/id ::get-facility-ids
+                :source {::data-source/id ::get-ids
                          ::data-source/params {:ids [{:facility-id 1}]}
                          ::data-source/coll-of :facility
                          ::data-source/deps #{[:facilities 0]}}
@@ -1364,7 +1364,7 @@
                                                        :facility-id ^::data-source/dep [:facility-id :id]}}
 
                       :facilities {::data-source/coll-of :facility
-                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/fn #'get-ids
                                    ::data-source/params {:ids [{:facility-id 1}]}}}]
     (go
       (is (= (->> (-> prescription
@@ -1388,7 +1388,7 @@
                    (-> {:item {::data-source/fn #'thing}
 
                         :items {::data-source/coll-of :item
-                                ::data-source/fn #'get-facility-ids
+                                ::data-source/fn #'get-ids
                                 ::data-source/params {:ids [{:item-id 1}
                                                             {:item-id 2}]}}
 
@@ -1415,14 +1415,14 @@
     (is (= (into #{}
                  (-> {:facility {::data-source/fn #'echo-stub-2}
                       :facilities {::data-source/coll-of :facility
-                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/fn #'get-ids
                                    ::data-source/params {:ids (seq [{:facility-id 1}])}}}
                      sut/fill
                      (sut/select [:facilities])
                      exhaust
                      <!))
            #{{:path :facilities
-              :source {::data-source/id ::get-facility-ids
+              :source {::data-source/id ::get-ids
                        ::data-source/params {:ids [{:facility-id 1}]}
                        ::data-source/coll-of :facility
                        ::data-source/deps #{}}
@@ -1439,7 +1439,7 @@
                        ::result/retrying? false
                        ::result/attempts 1}}
              {:path :facilities
-              :source {::data-source/id ::get-facility-ids
+              :source {::data-source/id ::get-ids
                        ::data-source/params {:ids [{:facility-id 1}]}
                        ::data-source/coll-of :facility
                        ::data-source/deps #{[:facilities 0]}}
@@ -1452,14 +1452,14 @@
     (stub stub-1 [{:facility "OK"}])
     (let [filled (-> {:facility {::data-source/fn #'echo-stub-1}
                       :facilities {::data-source/coll-of :facility
-                                   ::data-source/fn #'get-facility-ids
+                                   ::data-source/fn #'get-ids
                                    ::data-source/params {:ids (seq [{:facility-id 1}])}}}
                      sut/fill)]
       (<! (sut/collect (sut/select filled [:facilities])))
       (is (= (into #{}
                    (<! (exhaust (sut/select filled [:facilities]))))
              #{{:path :facilities
-                :source {::data-source/id ::get-facility-ids
+                :source {::data-source/id ::get-ids
                          ::data-source/params {:ids [{:facility-id 1}]}
                          ::data-source/coll-of :facility
                          ::data-source/deps #{}}
@@ -1472,7 +1472,7 @@
     (stub stub-1 [{:facility "OK"}])
     (let [prescription {:facility {::data-source/fn #'echo-stub-1}
                         :facilities {::data-source/coll-of :facility
-                                     ::data-source/fn #'get-facility-ids
+                                     ::data-source/fn #'get-ids
                                      ::data-source/params {:ids (seq [{:facility-id 1}])}}}
           cache (atom {})]
       (-> (sut/fill prescription {:cache (cache/atom-map cache)})
@@ -1493,7 +1493,7 @@
                        ::result/cached? true}
               :source {::data-source/coll-of :facility
                        ::data-source/deps #{}
-                       ::data-source/id ::get-facility-ids
+                       ::data-source/id ::get-ids
                        ::data-source/params {:ids [{:facility-id 1}]}}})))))
 
 (defscenario-async "Tracks indices per collection"
@@ -1624,7 +1624,7 @@
             (-> {:cheese {::data-source/fn #'cheese}
                  :pizza {::data-source/fn #'echo-params
                          ::data-source/begets {:cheese :cheese}}
-                 :pizzas {::data-source/fn #'get-facility-ids
+                 :pizzas {::data-source/fn #'get-ids
                           ::data-source/params {:ids [{:id 1} {:id 2}]}
                           ::data-source/coll-of :pizza}}
                 sut/fill
@@ -1679,7 +1679,7 @@
             (-> {:actor {::data-source/fn #'echo-params}
                  :person {::data-source/fn #'echo-params
                           ::data-source/begets {:actor :actor}}
-                 :people {::data-source/fn #'get-facility-ids
+                 :people {::data-source/fn #'get-ids
                           ::data-source/coll-of :person}
                  :movie {::data-source/fn #'echo-stub-1
                          ::data-source/params {:id ^::data-source/dep [:config :id]}
@@ -1914,6 +1914,19 @@
              [{::result/success? true
                ::result/data {:ok true}
                ::result/attempts 1}])))))
+
+(defscenario-async "Is not dependent on reading from port to fetch data"
+  (go
+    (stub stub-1 [{:data 1} {:data 2} {:data 3}])
+    (let [res (-> {:data {::data-source/fn #'echo-stub-1}
+                   :coll {::data-source/fn #'get-ids
+                          ::data-source/params {:ids [{:id 1} {:id 2} {:id 3}]}
+                          ::data-source/coll-of :data}}
+                  sut/fill
+                  (sut/select [:coll]))]
+      (<! (timeout 20))
+      (close! res))
+    (is (= (count (:calls @stub-1)) 3))))
 
 (defscenario "Merges data from results"
   (is (= (sut/merge-results [{:path :id
