@@ -308,6 +308,37 @@ When `::result/retryable?` is `false`, Pharmacist will not retry the fetch, even
 if the maximum number of retries is not exhausted. If `::result/retryable?` is
 not set, its default value is `true`.
 
+### When to retry?
+
+By default Pharmacist will retry failing sources immediately. If desired, you
+can insert a pause between retries. There is two ways to do this: in the
+prescription, and in the result. The delay in the result will take precedence
+over the prescription one, if both are set:
+
+From the prescription:
+
+```clj
+(def prescription
+  {::auth {::data-source/id :spotify/auth
+           ::data-source/params {:spotify-api-user "username"
+                                 :spotify-api-password "password"}
+           ::data-source/retries 3
+           ::data-source/retry-delays [100 200 300]}})
+```
+
+This will cause the first retry to happen 100ms after the initial request, the
+second 200ms after the first, and the last retry 300ms after the second. If you
+want the same delay between each, specify a vector with a single number:
+`[100]`.
+
+To specify the delay from the result:
+
+```clj
+{::result/success? false
+ ::result/retryable? true
+ ::result/retry-delay 250}
+```
+
 ### Retries with refreshed dependencies
 
 If you are using [caching](#caching), it might not be worth retrying a fetch

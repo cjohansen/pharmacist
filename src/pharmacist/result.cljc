@@ -3,12 +3,13 @@
   of [[pharmacist.data-source]] fetch functions. A result is a map with the key
   `:pharmacist.result/success?` (a boolean) and any number of the below keys.
 
-| key                             | description |
-| --------------------------------|-------------|
-| `:pharmacist.result/success?`   | Boolean. Indicates successful retrieval
-| `:pharmacist.result/data`       | The resulting data from the fetch functions
-| `:pharmacist.result/retryable?` | A boolean indicating whether this failure is worth retrying
-| `:pharmacist.result/refresh`    | Optional set of parameters that must be refreshed before retrying
+| key                              | description |
+| ---------------------------------|-------------|
+| `:pharmacist.result/success?`    | Boolean. Indicates successful retrieval
+| `:pharmacist.result/data`        | The resulting data from the fetch functions
+| `:pharmacist.result/retryable?`  | A boolean indicating whether this failure is worth retrying
+| `:pharmacist.result/retrying-in` | Number of milliseconds to wait before retrying
+| `:pharmacist.result/refresh`     | Optional set of parameters that must be refreshed before retrying
 
   The following keys are set by [[pharmacist.prescription/fill]]:
 

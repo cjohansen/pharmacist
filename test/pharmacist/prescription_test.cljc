@@ -1,6 +1,6 @@
 (ns pharmacist.prescription-test
-  (:require #?(:clj [clojure.core.async :refer [<! <!! go go-loop timeout]]
-               :cljs [cljs.core.async :refer [<! go go-loop timeout]])
+  (:require #?(:clj [clojure.core.async :refer [<! <!! go go-loop timeout alts!]]
+               :cljs [cljs.core.async :refer [<! go go-loop timeout alts!]])
             #?(:clj [clojure.spec.alpha :as s]
                :cljs [cljs.spec.alpha :as s])
             #?(:clj [clojure.test :refer [is]]
@@ -71,6 +71,10 @@
 
 (defn get-facility-ids [{::data-source/keys [params]}]
   (result/success (:ids params)))
+
+(defn now []
+  #?(:cljs (.getTime (js/Date.))
+     :clj (.toEpochMilli (java.time.Instant/now))))
 
 (defscenario "Ignores no dependencies"
   (is (= (sut/resolve-deps {:data-1 {::data-source/id :data/one}
@@ -429,7 +433,8 @@
                :result {::result/success? false
                         ::result/data {:message "Oops!"}
                         ::result/attempts 1
-                        ::result/retrying? true}}
+                        ::result/retrying? true
+                        ::result/retry-delay 0}}
               {:path :data-1
                :source {::data-source/id ::echo-stub-2
                         ::data-source/params {}
@@ -471,11 +476,13 @@
              [{::result/success? false
                ::result/data {:message "Oops!"}
                ::result/attempts 1
-               ::result/retrying? true}
+               ::result/retrying? true
+               ::result/retry-delay 0}
               {::result/success? false
                ::result/data {:message "Oops!"}
                ::result/attempts 2
-               ::result/retrying? true}
+               ::result/retrying? true
+               ::result/retry-delay 0}
               {::result/success? false
                ::result/data {:message "Oops!"}
                ::result/attempts 3
@@ -521,7 +528,8 @@
                         ::result/data {:message "Oops!"}
                         ::result/refresh #{:id}
                         ::result/success? false
-                        ::result/retrying? true}}
+                        ::result/retrying? true
+                        ::result/retry-delay 0}}
               {:path :data-1
                :source {::data-source/deps #{}
                         ::data-source/id ::echo-stub-1
@@ -562,7 +570,8 @@
                         ::result/attempts 1
                         ::result/data {:message "Oops!"}
                         ::result/refresh #{::data-source/params}
-                        ::result/retrying? true}}
+                        ::result/retrying? true
+                        ::result/retry-delay 0}}
               {:path :data-1
                :source {::data-source/deps #{}
                         ::data-source/id ::echo-stub-1
@@ -578,6 +587,37 @@
                :result {::result/success? true
                         ::result/attempts 2
                         ::result/data {:id 2}}}])))))
+
+(defn echo-stub-2-with-time [source]
+  (assoc (echo-stub-2 source) :attempted-at (now)))
+
+(defscenario-async "Retries with timeouts"
+  (let [prescription {:data-1 {::data-source/fn #'echo-stub-2-with-time
+                               ::data-source/retries 2
+                               ::data-source/retry-delays [10 20]
+                               ::data-source/params {}}}]
+    (go
+      (stub stub-2 [(result/failure {:message "Oops!"})
+                    (result/failure {:message "Oops!"})
+                    (result/success {:data "Ok"})])
+      (let [results (<! (results (sut/select (sut/fill prescription) [:data-1])))
+            [initial first-retry second-retry] (map :attempted-at results)]
+        (is (<= 10 (- first-retry initial) 50))
+        (is (<= 20 (- second-retry first-retry) 50))))))
+
+(defscenario-async "Retries with timeouts on result"
+  (let [prescription {:data-1 {::data-source/fn #'echo-stub-2-with-time
+                               ::data-source/retries 2
+                               ::data-source/retry-delays [250]
+                               ::data-source/params {}}}]
+    (go
+      (stub stub-2 [(assoc (result/failure {:message "Oops!"}) ::result/retry-delay 20)
+                    (assoc (result/failure {:message "Oops!"}) ::result/retry-delay 10)
+                    (result/success {:data "Ok"})])
+      (let [results (<! (results (sut/select (sut/fill prescription) [:data-1])))
+            [initial first-retry second-retry] (map :attempted-at results)]
+        (is (<= 20 (- first-retry initial) 50))
+        (is (<= 10 (- second-retry first-retry) 50))))))
 
 (defscenario-async "Collects results"
   (let [prescription {:data-1 {::data-source/fn #'echo-stub-1}
@@ -672,7 +712,8 @@
                         ::result/data {:message "Oops!"}
                         ::result/refresh #{:id}
                         ::result/success? false
-                        ::result/retrying? true}}
+                        ::result/retrying? true
+                        ::result/retry-delay 0}}
               {:path :data-1
                :source {::data-source/deps #{}
                         ::data-source/id ::echo-stub-1

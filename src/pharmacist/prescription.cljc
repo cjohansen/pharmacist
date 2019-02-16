@@ -169,7 +169,7 @@
   (cond-> source
     (empty? (::data-source/deps source)) (assoc ::data-source/deps (resolve-deps-1 (::data-source/original-params source) nil))
     :always (dissoc ::data-source/original-params ::data-source/refreshing? ::data-source/cache-deps
-                    ::data-source/fn ::data-source/async-fn ::data-source/cache-params
+                    ::data-source/fn ::data-source/async-fn ::data-source/cache-params ::data-source/delay
                     ::result/attempts ::result/refresh)))
 
 (defn- result-error [message reason]
@@ -180,6 +180,10 @@
 (def ^:private result-not-map (result-error "not a map" :result-not-map))
 (def ^:private result-nil (result-error "nil" :result-nil))
 (def ^:private result-not-result (result-error "no :pharmacist.result/success? or :pharmacist.result/data" :not-pharmacist-result))
+
+(defn- retry-delay [{::data-source/keys [retry-delays] :as source} result]
+  (or (::result/retry-delay result)
+      (get (vec retry-delays) (dec (min (::result/attempts source) (count retry-delays))) 0)))
 
 (defn- prep-result [source result]
   (let [result (cond
@@ -195,7 +199,10 @@
               (assoc ::result/raw-data (::result/data result))
               (update ::result/data #(schema/coerce-data source %)))
           result)
-        (assoc result ::result/retrying? (retryable? {:source source :result result}))))))
+        (let [retrying? (retryable? {:source source :result result})]
+          (cond-> result
+            retrying? (assoc ::result/retry-delay (retry-delay source result))
+            :always (assoc ::result/retrying? retrying?)))))))
 
 (defn- safe-take [fetch-port timeout-ms]
   (a/go
@@ -228,6 +235,8 @@
 
 (defn- fetch [{:keys [cache timeout]} path source]
   (a/go
+    (when (< 0 (or (::data-source/delay source) 0))
+      (a/<! (a/timeout (::data-source/delay source))))
     (let [attempts (inc (get source ::result/attempts 0))
           source (assoc source ::result/attempts attempts)
           message {:source source
@@ -267,6 +276,7 @@
             (map (fn [{:keys [path source result]}]
                    [path (-> source
                              (assoc ::data-source/params (::data-source/original-params source))
+                             (assoc ::data-source/delay (::result/retry-delay result))
                              (assoc ::result/refresh (params->deps source (::result/refresh result))))]))
             (into {}))])))
 

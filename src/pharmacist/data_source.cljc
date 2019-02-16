@@ -146,6 +146,7 @@
 | `::data-source/async-fn`     | Function that fetches this source asynchronously. Should return a core.async channel that emits a single [[pharmacist.result]]
 | `::data-source/params`       | Parameter map to pass to the fetch function
 | `::data-source/retries`      | The number of times `::result/retryable?` results from this source can be retried
+| `::data-source/retry-delays` | A vector of milliseconds to wait before retries
 | `::data-source/timeout`      | The maximum number of milliseconds to wait for this source to be fetched.
 | `::data-source/coll-of`      | The type of source this source is a collection of
 | `::data-source/cache-params` | A collection of paths to extract as the cache key, see [[pharmacist.cache/cache-params]]
