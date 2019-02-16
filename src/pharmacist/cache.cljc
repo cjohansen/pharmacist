@@ -4,7 +4,8 @@
             [clojure.spec.alpha :as s]
             [pharmacist.data-source :as data-source]))
 
-(s/def ::path (s/coll-of (s/or :keyword keyword? :number number?)))
+(s/def ::path (s/or :coll (s/coll-of (s/or :keyword keyword? :number number?))
+                    :keyword keyword?))
 (s/def ::source (s/keys :req [::data-source/id ::data-source/params]))
 (s/def ::cache #(instance? clojure.lang.IRef %))
 (s/def ::cache-get-args (s/cat :cache ::cache :path ::path :source ::source))
