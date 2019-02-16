@@ -73,14 +73,17 @@
 
 (declare resolve-deps-with)
 
+(defn- unresolved-collections [prescription k]
+  (->> prescription
+       (filter (fn [[_ source]] (and (::data-source/member-of source)
+                                     (not (contains? source k)))))
+       (reduce (fn [deps [p source]]
+                 (update deps (::data-source/member-of source) #(conj (or % #{}) p))) {})))
+
 (defn- add-collection-deps [prescription res k f]
   (loop [res res
          acquired #{}
-         [[coll deps] & coll-deps]
-         (->> prescription
-              (filter (fn [[_ source]] (and (::data-source/in-coll source) (not (contains? source k)))))
-              (reduce (fn [deps [p source]]
-                        (update deps (::data-source/in-coll source) #(conj (or % #{}) p))) {}))]
+         [[coll deps] & coll-deps] (unresolved-collections prescription k)]
     (if (nil? coll)
       (merge res (when (seq acquired)
                    (resolve-deps-with (merge prescription res) acquired k f)))
@@ -215,8 +218,9 @@
       timeout)))
 
 (defn- partial? [{:keys [source result]}]
-  (and (::data-source/coll-of source)
-       (not (empty? (::result/data result)))))
+  (or (and (::data-source/coll-of source)
+           (not (empty? (::result/data result))))
+      (::data-source/begets source)))
 
 (defn- cache-result [cache {:keys [path source result] :as message}]
   (when (and (ifn? (:put cache)) (result/success? result))
@@ -272,13 +276,17 @@
 (defn- ensure-id [source]
   (assoc source ::data-source/id (data-source/id source)))
 
+(defn- prep-nested-source [prescription path source data]
+  (-> prescription
+      path
+      (dissoc ::data-source/original-params ::data-source/deps ::data-source/cache-deps)
+      (update ::data-source/params merge data)))
+
 (defn- prep-coll-item [prescription coll-path path source data]
   {:path path
    :source (-> prescription
-               (get (::data-source/coll-of source))
-               (dissoc ::data-source/original-params ::data-source/deps ::data-source/cache-deps)
-               (update ::data-source/params #(merge % data))
-               (assoc ::data-source/in-coll coll-path))})
+               (prep-nested-source (::data-source/coll-of source) source data)
+               (assoc ::data-source/member-of coll-path))})
 
 (defn- map-items [prescription {:keys [path source result]}]
   (->> (::result/data result)
@@ -289,18 +297,27 @@
   (->> (::result/data result)
        (map #(prep-coll-item prescription path path source %))))
 
-(defn- eligible-nested [prescription results]
+(defn- eligible-collections [prescription results]
   (let [eligible (filter #(-> % :source ::data-source/coll-of) results)]
     (if (map? (::result/data (:result (first eligible))))
       (->> eligible
            (mapcat #(map-items prescription %))
-           (map (fn [{:keys [path source]}] [path source]))
-           (into {}))
+           (map (fn [{:keys [path source]}] [path source])))
       (->> eligible
            (map #(coll-items prescription %))
            (mapcat #(map-indexed (fn [idx {:keys [path source]}]
-                                   [[path idx] source]) %))
-           (into {})))))
+                                   [(conj (->path path) idx) source]) %))))))
+
+(defn- eligible-nested [prescription results]
+  (->> results
+       (filter #(-> % :source ::data-source/begets))
+       (mapcat (fn [{:keys [path source result]}]
+                 (let [base-path (->path path)]
+                   (map (fn [[p template]]
+                          [(conj base-path p) (-> prescription
+                                                  (prep-nested-source template source (::result/data result))
+                                                  (assoc ::data-source/member-of path))])
+                        (::data-source/begets source)))))))
 
 (defn- restore-refreshes [refreshes prescription]
   (reduce #(update %1 %2 assoc
@@ -319,19 +336,19 @@
     (into [] data)
     data))
 
-(defn- merge-collection-results [results loaded]
+(defn- merge-collection-results [prescription results loaded]
   (->> results
-       (filter #(-> % :source ::data-source/in-coll))
+       (filter #(-> % :source ::data-source/member-of))
+       (remove #(-> % :result ::result/partial?))
        (reduce
         (fn [loaded {:keys [path source result]}]
-          (let [coll (::data-source/in-coll source)
-                path (concat [coll ::result/data] (rest path))]
-            (if (result/success? result)
-              (assoc-in loaded path (::result/data result))
+          (let [coll (::data-source/member-of source)]
+            (if (and (result/success? result))
+              (assoc-in loaded [coll ::result/data (last path)] (::result/data result))
               (assoc-in loaded [coll ::result/success?] false))))
         loaded)))
 
-(defn- update-results [results batch-results refresh]
+(defn- update-results [prescription results batch-results refresh]
   (apply
    dissoc
    (->> batch-results
@@ -339,34 +356,45 @@
                [path (update result ::result/data unseq)]))
         (into {})
         (merge results)
-        (merge-collection-results batch-results))
+        (merge-collection-results prescription batch-results))
    refresh))
+
+(defn- desired-subs [prescription loaded path]
+  (if (get-in prescription [path ::data-source/coll-of])
+    (count (::result/data (loaded path)))
+    (count (get-in prescription [path ::data-source/begets]))))
+
+(defn- completed-subs [prescription loaded path]
+  (->> loaded
+       (remove #(-> % second ::result/partial?))
+       (filter #(= path (get-in prescription [(first %) ::data-source/member-of])))
+       count))
 
 (defn- complete-collections [opt ch result loaded prescription ks]
   (let [incomplete (filter #(-> % second ::result/partial?) loaded)
         completed (->> incomplete
                        (filter (fn [[p source]]
-                                 (let [desired (count (::result/data (loaded p)))
-                                       completed (->> loaded
-                                                      (filter #(= p (get-in prescription [(first %) ::data-source/in-coll])))
-                                                      count)]
-                                   (= desired completed))))
+                                 (= (desired-subs prescription loaded p)
+                                    (completed-subs prescription loaded p))))
                        (map first))]
     (when (seq completed)
       (a/go
-        (let [loaded (reduce #(update %1 %2 dissoc ::result/partial?) loaded completed)]
-          (doseq [k completed]
-            (a/>! ch {:path k
-                      :source (prep-source (prescription k))
-                      :result (loaded k)}))
-          {:loaded loaded
+        (let [loaded (reduce #(update %1 %2 dissoc ::result/partial?) loaded completed)
+              results (map (fn [k]
+                             {:path k
+                              :source (prep-source (prescription k))
+                              :result (loaded k)}) completed)]
+          (doseq [result results]
+            (a/>! ch result))
+          {:loaded (merge-collection-results prescription results loaded)
            :prescription prescription
            :ks ks})))))
 
 (defn- process-batch-results [opt loaded prescription ks results retryable]
-  (let [nested (eligible-nested prescription results)
+  (let [nested (into {} (concat (eligible-collections prescription results)
+                                (eligible-nested prescription results)))
         refresh (mapcat ::result/refresh (vals retryable))
-        loaded (update-results loaded results refresh)]
+        loaded (update-results prescription loaded results refresh)]
     {:loaded loaded
      :prescription (update-prescription prescription nested results retryable refresh)
      :ks (set (pending loaded (concat ks (keys nested) refresh)))}))

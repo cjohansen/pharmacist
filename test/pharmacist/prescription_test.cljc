@@ -188,7 +188,7 @@
            :data-2 {::data-source/id :data/two
                     ::data-source/params {:other ^::data-source/dep [:data-1]}}
            [:data-1 0] {::data-source/id :data/three
-                        ::data-source/in-coll :data-1}}
+                        ::data-source/member-of :data-1}}
           [:data-2])
          {:data-1 {::data-source/id :data/one
                    ::data-source/deps #{[:data-1 0]}}
@@ -196,7 +196,7 @@
                    ::data-source/params {:other [:data-1]}
                    ::data-source/deps #{:data-1}}
           [:data-1 0] {::data-source/id :data/three
-                       ::data-source/in-coll :data-1
+                       ::data-source/member-of :data-1
                        ::data-source/deps #{}}})))
 
 (defscenario "Adds transitive dependencies from collection items to source depending on collection"
@@ -207,7 +207,7 @@
            :data-3 {::data-source/id :data/one}
            [:data-1 0] {::data-source/id :data/three
                         ::data-source/params {:id ^::data-source/dep [:data-3]}
-                        ::data-source/in-coll :data-1}}
+                        ::data-source/member-of :data-1}}
           [:data-2])
          {:data-1 {::data-source/id :data/one
                    ::data-source/deps #{[:data-1 0]}}
@@ -217,7 +217,7 @@
           :data-3 {::data-source/id :data/one
                    ::data-source/deps #{}}
           [:data-1 0] {::data-source/id :data/three
-                       ::data-source/in-coll :data-1
+                       ::data-source/member-of :data-1
                        ::data-source/deps #{:data-3}
                        ::data-source/params {:id [:data-3]}}})))
 
@@ -1157,7 +1157,7 @@
                        ::data-source/params {:some "facility"
                                              :facility-id 1}
                        ::data-source/deps #{}
-                       ::data-source/in-coll :facilities}
+                       ::data-source/member-of :facilities}
               :result {::result/success? true
                        ::result/data {:some "facility"
                                       :facility-id 1}
@@ -1167,7 +1167,7 @@
                        ::data-source/params {:some "facility"
                                              :facility-id 2}
                        ::data-source/deps #{}
-                       ::data-source/in-coll :facilities}
+                       ::data-source/member-of :facilities}
               :result {::result/success? true
                        ::result/data {:some "facility"
                                       :facility-id 2}
@@ -1213,7 +1213,7 @@
                        ::data-source/params {:some "facility"
                                              :facility-id 1}
                        ::data-source/deps #{}
-                       ::data-source/in-coll :facilities}
+                       ::data-source/member-of :facilities}
               :result {::result/success? true
                        ::result/data {:some "facility"
                                       :facility-id 1}
@@ -1223,7 +1223,7 @@
                        ::data-source/params {:some "facility"
                                              :facility-id 2}
                        ::data-source/deps #{}
-                       ::data-source/in-coll :facilities}
+                       ::data-source/member-of :facilities}
               :result {::result/success? true
                        ::result/data {:some "facility"
                                       :facility-id 2}
@@ -1297,7 +1297,7 @@
                          ::data-source/params {:user {:id 13}
                                                :facility-id 1}
                          ::data-source/deps #{:user}
-                         ::data-source/in-coll :facilities}
+                         ::data-source/member-of :facilities}
                 :result {::result/success? true
                          ::result/data {:user {:id 13}
                                         :facility-id 1}
@@ -1393,7 +1393,7 @@
               :source {::data-source/id ::echo-stub-2
                        ::data-source/params {:facility-id 1}
                        ::data-source/deps #{}
-                       ::data-source/in-coll :facilities}
+                       ::data-source/member-of :facilities}
               :result {::result/success? false
                        ::result/retrying? false
                        ::result/attempts 1}}
@@ -1476,6 +1476,231 @@
                [:pizza-meals 0]
                :hotdog-meals
                [:hotdog-meals 0]})))))
+
+(defscenario-async "Data begets data"
+  (go
+    (stub stub-1 [{:title "Good food"}])
+    (is (= (-> {:pizza {::data-source/fn #'echo-params
+                        ::data-source/params {:config ^::data-source/dep [:config]}}
+                :person {::data-source/fn #'echo-stub-1
+                         ::data-source/begets {:meal :pizza}}}
+               (sut/fill {:params {:config {:id 12}}})
+               (sut/select [:person])
+               exhaust
+               <!)
+           [{:path :person
+             :source {::data-source/id ::echo-stub-1
+                      ::data-source/deps #{}
+                      ::data-source/begets {:meal :pizza}
+                      ::data-source/params {}}
+             :result {::result/success? true
+                      ::result/partial? true
+                      ::result/attempts 1
+                      ::result/data {:title "Good food"}}}
+            {:path [:person :meal]
+             :source {::data-source/id ::echo-params
+                      ::data-source/deps #{}
+                      ::data-source/params {:config {:id 12}
+                                            :title "Good food"}
+                      ::data-source/member-of :person}
+             :result {::result/success? true
+                      ::result/attempts 1
+                      ::result/data {:title "Good food"
+                                     :config {:id 12}}}}
+            {:path :person
+             :source {::data-source/id ::echo-stub-1
+                      ::data-source/deps #{[:person :meal]}
+                      ::data-source/begets {:meal :pizza}
+                      ::data-source/params {}}
+             :result {::result/success? true
+                      ::result/attempts 1
+                      ::result/data {:title "Good food"
+                                     :meal {:title "Good food"
+                                            :config {:id 12}}}}}]))))
+
+(defn event-summary [events]
+  (->> events
+       (map (fn [{:keys [path source result]}]
+              {:path path
+               :partial? (boolean (::result/partial? result))
+               :params (::data-source/params source)
+               :data (::result/data result)}))))
+
+(defscenario-async "Data begets data begets data"
+  (go
+    (stub stub-1 [{:title "Good food"}])
+    (stub stub-2 [(result/success {:title "Mozarella"})])
+    (is (= (-> {:cheese {::data-source/fn #'echo-stub-2}
+                :pizza {::data-source/fn #'echo-params
+                        ::data-source/params {:config ^::data-source/dep [:config]}
+                        ::data-source/begets {:cheese :cheese}}
+                :person {::data-source/fn #'echo-stub-1
+                         ::data-source/begets {:meal :pizza}}}
+               (sut/fill {:params {:config {:id 12}}})
+               (sut/select [:person])
+               exhaust
+               <!
+               event-summary)
+           [{:path :person
+             :params {}
+             :partial? true
+             :data {:title "Good food"}}
+            {:path [:person :meal]
+             :params {:config {:id 12}
+                      :title "Good food"}
+             :partial? true
+             :data {:title "Good food"
+                    :config {:id 12}}}
+            {:path [:person :meal :cheese]
+             :params {:title "Good food"
+                      :config {:id 12}}
+             :partial? false
+             :data {:title "Mozarella"}}
+            {:path [:person :meal]
+             :params {:config {:id 12}
+                      :title "Good food"}
+             :partial? false
+             :data {:title "Good food"
+                    :config {:id 12}
+                    :cheese {:title "Mozarella"}}}
+            {:path :person
+             :partial? false
+             :params {}
+             :data {:title "Good food"
+                    :meal {:title "Good food"
+                           :config {:id 12}
+                           :cheese {:title "Mozarella"}}}}]))))
+
+(defn- cheese [{::data-source/keys [params]}]
+  (if (= 1 (:id params))
+    (result/success {:title "Gorgonzola"})
+    (result/success {:title "Mozarella"})))
+
+(defscenario-async "Collection items begets data"
+  (go
+    (is (= (into
+            #{}
+            (-> {:cheese {::data-source/fn #'cheese}
+                 :pizza {::data-source/fn #'echo-params
+                         ::data-source/begets {:cheese :cheese}}
+                 :pizzas {::data-source/fn #'get-facility-ids
+                          ::data-source/params {:ids [{:id 1} {:id 2}]}
+                          ::data-source/coll-of :pizza}}
+                sut/fill
+                (sut/select [:pizzas])
+                exhaust
+                <!
+                event-summary))
+           #{{:path :pizzas
+              :params {:ids [{:id 1} {:id 2}]}
+              :partial? true
+              :data [{:id 1} {:id 2}]}
+             {:path [:pizzas 0]
+              :params {:id 1}
+              :partial? true
+              :data {:id 1}}
+             {:path [:pizzas 1]
+              :params {:id 2}
+              :partial? true
+              :data {:id 2}}
+             {:path [:pizzas 0 :cheese]
+              :params {:id 1}
+              :partial? false
+              :data {:title "Gorgonzola"}}
+             {:path [:pizzas 1 :cheese]
+              :params {:id 2}
+              :partial? false
+              :data {:title "Mozarella"}}
+             {:path [:pizzas 0]
+              :params {:id 1}
+              :partial? false
+              :data {:id 1
+                     :cheese {:title "Gorgonzola"}}}
+             {:path [:pizzas 1]
+              :params {:id 2}
+              :partial? false
+              :data {:id 2
+                     :cheese {:title "Mozarella"}}}
+             {:path :pizzas
+              :params {:ids [{:id 1} {:id 2}]}
+              :partial? false
+              :data [{:id 1
+                      :cheese {:title "Gorgonzola"}}
+                     {:id 2
+                      :cheese {:title "Mozarella"}}]}}))))
+
+(defscenario-async "Data begets data, begets collection, begets data"
+  (go
+    (stub stub-1 [{:title "Movie"
+                   :ids [{:person "One"} {:person "Two"}]}])
+    (is (= (into
+            #{}
+            (-> {:actor {::data-source/fn #'echo-params}
+                 :person {::data-source/fn #'echo-params
+                          ::data-source/begets {:actor :actor}}
+                 :people {::data-source/fn #'get-facility-ids
+                          ::data-source/coll-of :person}
+                 :movie {::data-source/fn #'echo-stub-1
+                         ::data-source/params {:id ^::data-source/dep [:config :id]}
+                         ::data-source/begets {:characters :people}}}
+                (sut/fill {:params {:config {:id 12}}})
+                (sut/select [:movie])
+                exhaust
+                <!
+                event-summary))
+           #{{:path :movie
+              :partial? true
+              :params {:id 12}
+              :data {:title "Movie"
+                     :ids [{:person "One"} {:person "Two"}]}}
+             {:path [:movie :characters]
+              :partial? true
+              :params {:title "Movie"
+                       :ids [{:person "One"} {:person "Two"}]}
+              :data [{:person "One"} {:person "Two"}]}
+             {:path [:movie :characters 0]
+              :partial? true
+              :params {:person "One"}
+              :data {:person "One"}}
+             {:path [:movie :characters 0 :actor]
+              :partial? false
+              :params {:person "One"}
+              :data {:person "One"}}
+             {:path [:movie :characters 0]
+              :partial? false
+              :params {:person "One"}
+              :data {:person "One"
+                     :actor {:person "One"}}}
+             {:path [:movie :characters 1]
+              :partial? true
+              :params {:person "Two"}
+              :data {:person "Two"}}
+             {:path [:movie :characters 1 :actor]
+              :partial? false
+              :params {:person "Two"}
+              :data {:person "Two"}}
+             {:path [:movie :characters 1]
+              :partial? false
+              :params {:person "Two"}
+              :data {:person "Two"
+                     :actor {:person "Two"}}}
+             {:path [:movie :characters]
+              :partial? false
+              :params {:title "Movie"
+                       :ids [{:person "One"} {:person "Two"}]}
+              :data [{:person "One"
+                      :actor {:person "One"}}
+                     {:person "Two"
+                      :actor {:person "Two"}}]}
+             {:path :movie
+              :partial? false
+              :params {:id 12}
+              :data {:title "Movie"
+                     :ids [{:person "One"} {:person "Two"}]
+                     :characters [{:person "One"
+                                   :actor {:person "One"}}
+                                  {:person "Two"
+                                   :actor {:person "Two"}}]}}}))))
 
 (defscenario-async "Gracefully fails lazy seq in place of proper result"
   (go
