@@ -4,11 +4,9 @@
             [clojure.spec.alpha :as s]
             [pharmacist.data-source :as data-source]))
 
-(s/def ::path (s/or :coll (s/coll-of (s/or :keyword keyword? :number number?))
-                    :keyword keyword?))
 (s/def ::source (s/keys :req [::data-source/id ::data-source/params]))
 (s/def ::cache #(instance? clojure.lang.IRef %))
-(s/def ::cache-get-args (s/cat :cache ::cache :path ::path :source ::source))
+(s/def ::cache-get-args (s/cat :cache ::cache :path ::data-source/path :source ::source))
 
 (defn cache-get
   "Look up data source in the cache. Expects all parameters in `source` to
@@ -21,7 +19,7 @@
   :ret (s/or :nil nil? :val any?))
 
 (s/def ::cache-put-args (s/cat :cache ::cache
-                               :path ::path
+                               :path ::data-source/path
                                :source ::source
                                :value any?))
 

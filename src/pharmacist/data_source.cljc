@@ -165,9 +165,10 @@
 (s/def ::params (s/or :dependency (s/coll-of keyword?)
                       :map map?))
 (s/def ::retries number?)
-(s/def ::path (s/coll-of keyword?))
+(s/def ::path (s/or :coll (s/coll-of (s/or :keyword keyword? :number number?))
+                    :keyword keyword?))
 (s/def ::cache-params (s/coll-of ::path))
-(s/def ::cache-deps (s/coll-of keyword?))
+(s/def ::cache-deps (s/coll-of ::path))
 (s/def ::coll-of keyword?)
 (s/def ::in-coll keyword?)
 
