@@ -1795,6 +1795,36 @@
                                     {:name "Mei Kusakabe"
                                      :actor "Chika Sakamoto"}]}}})))))
 
+(defscenario-async "Pipes collection through filter and begets data from the result"
+  (let [prescription {:items {::data-source/fn #'get-ids
+                              ::data-source/coll-of :item
+                              ::data-source/params {:ids [{:item 1} {:item 2} {:item 3} {:item 4}]}}
+                      :item {::data-source/fn (fn [{::data-source/keys [params]}]
+                                                (result/success
+                                                 {:type :item
+                                                  :item-id (:item params)}))}
+                      :even-items {::data-source/fn (fn [{::data-source/keys [params]}]
+                                                      (result/success
+                                                       (filter #(even? (:item-id %)) (:items params))))
+                                   ::data-source/params {:items ^::data-source/dep [:items]}
+                                   ::data-source/coll-of :enriched-item}
+                      :enriched-item {::data-source/fn (fn [{::data-source/keys [params]}]
+                                                         (result/success params))
+                                      ::data-source/begets {:signature :signature}}
+                      :signature {::data-source/fn (fn [{::data-source/keys [params]}]
+                                                     (result/success (-> params :enriched-item :item-id)))}
+                      }]
+    (go
+      (is (= (-> prescription
+                 sut/fill
+                 (sut/select [:even-items])
+                 sut/collect
+                 <!
+                 ::result/data
+                 :even-items)
+             [{:item-id 2, :type :item, :signature 2}
+              {:item-id 4, :type :item, :signature 4}])))))
+
 (defscenario-async "Gracefully fails lazy seq in place of proper result"
   (go
     (is (= (<! (-> {:data {::data-source/id ::lazy-seq-fail
