@@ -170,7 +170,7 @@
     (empty? (::data-source/deps source)) (assoc ::data-source/deps (resolve-deps-1 (::data-source/original-params source) nil))
     :always (dissoc ::data-source/original-params ::data-source/refreshing? ::data-source/cache-deps
                     ::data-source/fn ::data-source/async-fn ::data-source/cache-params ::data-source/delay
-                    ::result/attempts ::result/refresh)))
+                    ::data-source/template-path ::result/attempts ::result/refresh)))
 
 (defn- result-error [message reason]
   {:message (str "Fetch did not return a pharmacist result: " message)
@@ -286,17 +286,17 @@
 (defn- ensure-id [source]
   (assoc source ::data-source/id (data-source/id source)))
 
-(defn- prep-nested-source [prescription path source data]
-  (-> prescription
-      path
+(defn- prep-nested-source [source data]
+  (-> source
       (dissoc ::data-source/original-params ::data-source/deps ::data-source/cache-deps)
       (update ::data-source/params merge data)))
 
 (defn- prep-coll-item [prescription coll-path path source data]
-  {:path path
-   :source (-> prescription
-               (prep-nested-source (::data-source/coll-of source) source data)
-               (assoc ::data-source/member-of coll-path))})
+  (let [coll (::data-source/coll-of source)]
+    {:path path
+     :source (-> (prep-nested-source (prescription coll) data)
+                 (assoc ::data-source/member-of coll-path)
+                 (assoc ::data-source/template-path coll))}))
 
 (defn- map-items [prescription {:keys [path source result]}]
   (->> (::result/data result)
@@ -318,15 +318,24 @@
            (mapcat #(map-indexed (fn [idx {:keys [path source]}]
                                    [(conj (->path path) idx) source]) %))))))
 
+(defn- nested-params [{:keys [source path result]} nested-path nested-source]
+  (let [result-path (or (::data-source/template-path source) path)]
+    (if ((resolve-deps-1 (::data-source/params nested-source) nested-path) result-path)
+      (::data-source/params (provide-deps {result-path result} nested-source))
+      {result-path (::result/data result)})))
+
 (defn- eligible-nested [prescription results]
   (->> results
        (filter #(-> % :source ::data-source/begets))
-       (mapcat (fn [{:keys [path source result]}]
+       (mapcat (fn [{:keys [path source result] :as message}]
                  (let [base-path (->path path)]
                    (map (fn [[p template]]
-                          [(conj base-path p) (-> prescription
-                                                  (prep-nested-source template source (::result/data result))
-                                                  (assoc ::data-source/member-of path))])
+                          (let [nested-path (conj base-path p)
+                                nested-source (prescription template)]
+                            [nested-path
+                             (-> (prep-nested-source nested-source (nested-params message nested-path nested-source))
+                                 (assoc ::data-source/member-of path)
+                                 (assoc ::data-source/template-path template))]))
                         (::data-source/begets source)))))))
 
 (defn- restore-refreshes [refreshes prescription]

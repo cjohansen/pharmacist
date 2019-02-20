@@ -1542,11 +1542,11 @@
              :source {::data-source/id ::echo-params
                       ::data-source/deps #{}
                       ::data-source/params {:config {:id 12}
-                                            :title "Good food"}
+                                            :person {:title "Good food"}}
                       ::data-source/member-of :person}
              :result {::result/success? true
                       ::result/attempts 1
-                      ::result/data {:title "Good food"
+                      ::result/data {:person {:title "Good food"}
                                      :config {:id 12}}}}
             {:path :person
              :source {::data-source/id ::echo-stub-1
@@ -1556,8 +1556,28 @@
              :result {::result/success? true
                       ::result/attempts 1
                       ::result/data {:title "Good food"
-                                     :meal {:title "Good food"
+                                     :meal {:person {:title "Good food"}
                                             :config {:id 12}}}}}]))))
+
+(defscenario-async "Data begets data using deps to control where parent is passed to child"
+  (go
+    (stub stub-1 [{:name "Somebody Someone"}])
+    (is (= (-> {:pizza {::data-source/fn #'echo-params
+                        ::data-source/params {:config ^::data-source/dep [:config]
+                                              :person-name ^::data-source/dep [:person :name]}}
+                :person {::data-source/fn #'echo-stub-1
+                         ::data-source/begets {:meal :pizza}}}
+               (sut/fill {:params {:config {:id 12}}})
+               (sut/select [:person])
+               exhaust
+               <!
+               second
+               :source)
+           {::data-source/id ::echo-params
+            ::data-source/deps #{}
+            ::data-source/params {:config {:id 12}
+                                  :person-name "Somebody Someone"}
+            ::data-source/member-of :person}))))
 
 (defn event-summary [events]
   (->> events
@@ -1588,32 +1608,32 @@
              :data {:title "Good food"}}
             {:path [:person :meal]
              :params {:config {:id 12}
-                      :title "Good food"}
+                      :person {:title "Good food"}}
              :partial? true
-             :data {:title "Good food"
+             :data {:person {:title "Good food"}
                     :config {:id 12}}}
             {:path [:person :meal :cheese]
-             :params {:title "Good food"
-                      :config {:id 12}}
+             :params {:pizza {:person {:title "Good food"}
+                              :config {:id 12}}}
              :partial? false
              :data {:title "Mozarella"}}
             {:path [:person :meal]
              :params {:config {:id 12}
-                      :title "Good food"}
+                      :person {:title "Good food"}}
              :partial? false
-             :data {:title "Good food"
+             :data {:person {:title "Good food"}
                     :config {:id 12}
                     :cheese {:title "Mozarella"}}}
             {:path :person
              :partial? false
              :params {}
              :data {:title "Good food"
-                    :meal {:title "Good food"
+                    :meal {:person {:title "Good food"}
                            :config {:id 12}
                            :cheese {:title "Mozarella"}}}}]))))
 
 (defn- cheese [{::data-source/keys [params]}]
-  (if (= 1 (:id params))
+  (if (= 1 (:id (:pizza params)))
     (result/success {:title "Gorgonzola"})
     (result/success {:title "Mozarella"})))
 
@@ -1645,11 +1665,11 @@
               :partial? true
               :data {:id 2}}
              {:path [:pizzas 0 :cheese]
-              :params {:id 1}
+              :params {:pizza {:id 1}}
               :partial? false
               :data {:title "Gorgonzola"}}
              {:path [:pizzas 1 :cheese]
-              :params {:id 2}
+              :params {:pizza {:id 2}}
               :partial? false
               :data {:title "Mozarella"}}
              {:path [:pizzas 0]
@@ -1672,76 +1692,87 @@
 
 (defscenario-async "Data begets data, begets collection, begets data"
   (go
-    (stub stub-1 [{:title "Movie"
-                   :ids [{:person "One"} {:person "Two"}]}])
-    (is (= (into
-            #{}
-            (-> {:actor {::data-source/fn #'echo-params}
-                 :person {::data-source/fn #'echo-params
-                          ::data-source/begets {:actor :actor}}
-                 :people {::data-source/fn #'get-ids
-                          ::data-source/coll-of :person}
-                 :movie {::data-source/fn #'echo-stub-1
-                         ::data-source/params {:id ^::data-source/dep [:config :id]}
-                         ::data-source/begets {:characters :people}}}
-                (sut/fill {:params {:config {:id 12}}})
-                (sut/select [:movie])
-                exhaust
-                <!
-                event-summary))
-           #{{:path :movie
-              :partial? true
-              :params {:id 12}
-              :data {:title "Movie"
-                     :ids [{:person "One"} {:person "Two"}]}}
-             {:path [:movie :characters]
-              :partial? true
-              :params {:title "Movie"
-                       :ids [{:person "One"} {:person "Two"}]}
-              :data [{:person "One"} {:person "Two"}]}
-             {:path [:movie :characters 0]
-              :partial? true
-              :params {:person "One"}
-              :data {:person "One"}}
-             {:path [:movie :characters 0 :actor]
-              :partial? false
-              :params {:person "One"}
-              :data {:person "One"}}
-             {:path [:movie :characters 0]
-              :partial? false
-              :params {:person "One"}
-              :data {:person "One"
-                     :actor {:person "One"}}}
-             {:path [:movie :characters 1]
-              :partial? true
-              :params {:person "Two"}
-              :data {:person "Two"}}
-             {:path [:movie :characters 1 :actor]
-              :partial? false
-              :params {:person "Two"}
-              :data {:person "Two"}}
-             {:path [:movie :characters 1]
-              :partial? false
-              :params {:person "Two"}
-              :data {:person "Two"
-                     :actor {:person "Two"}}}
-             {:path [:movie :characters]
-              :partial? false
-              :params {:title "Movie"
-                       :ids [{:person "One"} {:person "Two"}]}
-              :data [{:person "One"
-                      :actor {:person "One"}}
-                     {:person "Two"
-                      :actor {:person "Two"}}]}
-             {:path :movie
-              :partial? false
-              :params {:id 12}
-              :data {:title "Movie"
-                     :ids [{:person "One"} {:person "Two"}]
-                     :characters [{:person "One"
-                                   :actor {:person "One"}}
-                                  {:person "Two"
-                                   :actor {:person "Two"}}]}}}))))
+    (let [characters {1 {:name "Satsuki Kusakabe"}
+                      2 {:name "Mei Kusakabe"}}
+          actors {"Mei Kusakabe" "Chika Sakamoto"
+                  "Satsuki Kusakabe" "Noriko Hidaka"}]
+      (stub stub-1 [{:title "My Neighbour Totoro"
+                     :character-ids [{:id 1} {:id 2}]}])
+      (is (= (into
+              #{}
+              (-> {:movie-actor {::data-source/fn
+                                 (fn [{::data-source/keys [params]}]
+                                   (result/success (actors (-> params :character :name))))
+                                 ::data-source/id ::actor}
+                   :character {::data-source/fn
+                               (fn [{::data-source/keys [params]}]
+                                 (result/success (characters (:id params))))
+                               ::data-source/id ::character
+                               ::data-source/begets {:actor :movie-actor}}
+                   :chars {::data-source/fn (fn [{::data-source/keys [params]}]
+                                              (result/success (:character-ids (:movie params))))
+                           ::data-source/id ::get-people
+                           ::data-source/coll-of :character}
+                   :movie {::data-source/fn #'echo-stub-1
+                           ::data-source/begets {:characters :chars}}}
+                  sut/fill
+                  (sut/select [:movie])
+                  exhaust
+                  <!
+                  event-summary))
+             #{{:path :movie
+                :partial? true
+                :params {}
+                :data {:title "My Neighbour Totoro"
+                       :character-ids [{:id 1} {:id 2}]}}
+               {:path [:movie :characters]
+                :partial? true
+                :params {:movie {:title "My Neighbour Totoro"
+                                 :character-ids [{:id 1} {:id 2}]}}
+                :data [{:id 1} {:id 2}]}
+               {:path [:movie :characters 0]
+                :partial? true
+                :params {:id 1}
+                :data {:name "Satsuki Kusakabe"}}
+               {:path [:movie :characters 0 :actor]
+                :partial? false
+                :params {:character {:name "Satsuki Kusakabe"}}
+                :data "Noriko Hidaka"}
+               {:path [:movie :characters 0]
+                :partial? false
+                :params {:id 1}
+                :data {:name "Satsuki Kusakabe"
+                       :actor "Noriko Hidaka"}}
+               {:path [:movie :characters 1]
+                :partial? true
+                :params {:id 2}
+                :data {:name "Mei Kusakabe"}}
+               {:path [:movie :characters 1 :actor]
+                :partial? false
+                :params {:character {:name "Mei Kusakabe"}}
+                :data "Chika Sakamoto"}
+               {:path [:movie :characters 1]
+                :partial? false
+                :params {:id 2}
+                :data {:name "Mei Kusakabe"
+                       :actor "Chika Sakamoto"}}
+               {:path [:movie :characters]
+                :partial? false
+                :params {:movie {:title "My Neighbour Totoro"
+                                 :character-ids [{:id 1} {:id 2}]}}
+                :data [{:name "Satsuki Kusakabe"
+                        :actor "Noriko Hidaka"}
+                       {:name "Mei Kusakabe"
+                        :actor "Chika Sakamoto"}]}
+               {:path :movie
+                :partial? false
+                :params {}
+                :data {:title "My Neighbour Totoro"
+                       :character-ids [{:id 1} {:id 2}]
+                       :characters [{:name "Satsuki Kusakabe"
+                                     :actor "Noriko Hidaka"}
+                                    {:name "Mei Kusakabe"
+                                     :actor "Chika Sakamoto"}]}}})))))
 
 (defscenario-async "Gracefully fails lazy seq in place of proper result"
   (go
