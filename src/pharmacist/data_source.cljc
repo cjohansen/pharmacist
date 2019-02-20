@@ -263,9 +263,9 @@
 
 (def my-source
   {::data-source/fn #'fetch-my-source
-   ::data-source/params {:id ^::data-source/dep [:dep1 :id]
+   ::data-source/params {:thing ^::data-source/dep [:dep1 :id]
                          :type ^::data-source/dep [:dep2 :type]}
-   ::data-source/cache-params [[:dep1 :id]]})
+   ::data-source/cache-params [[:thing :id]]})
 ```"
   (fn [source] (::id source)))
 
@@ -276,9 +276,9 @@
         (map #(vector %) (keys params)))))
 
 (defmulti cache-deps
-  "Specify which dependencies are relevant to compute a cache key. Should return a
-  set of dependencies. The default implementation extracts the dependencies from
-  the result from [[cache-params]]. Most use-cases are best solved using
+  "Specify which parameters are relevant to compute a cache key. Should return a
+  set of params. The default implementation extracts the params from the result
+  from [[cache-params]]. Most use-cases are best solved using
   [[cache-params]], and in the rare cases where you need to control cache
   dependencies manually, it is recommended to specify it declaratively in your
   sources:
@@ -290,7 +290,7 @@
   {::data-source/fn #'fetch-my-source
    ::data-source/params {:id ^::data-source/dep [:dep1 :id]
                          :type ^::data-source/dep [:dep2 :type]}
-   ::data-source/cache-deps #{:dep1}})
+   ::data-source/cache-deps #{:id}})
 ```"
   (fn [source] (::id source)))
 

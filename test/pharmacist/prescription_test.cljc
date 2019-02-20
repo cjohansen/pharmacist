@@ -758,6 +758,27 @@
                         ::result/data {:id 333}
                         ::result/cached? true}}])))))
 
+(defscenario-async "Does not call cache-get with unresolved dependencies"
+  (let [prescription {:data-1 {::data-source/id :data-1
+                               ::data-source/fn #'echo-params
+                               ::data-source/params {:dep ^::data-source/dep [:data-2 :id]}}
+                      :data-2 {::data-source/id :data-2
+                               ::data-source/fn #'echo-params
+                               ::data-source/params {:id 42}}}
+        cache-reqs (atom #{})]
+    (go
+      (-> prescription
+          (sut/fill {:cache {:put (fn [path source res])
+                             :get (fn [path source]
+                                    (swap! cache-reqs conj [path (::data-source/params source)])
+                                    nil)}})
+          (sut/select [:data-1])
+          exhaust
+          <!)
+      (is (= @cache-reqs
+             #{[:data-1 {:dep 42}]
+               [:data-2 {:id 42}]})))))
+
 (defscenario-async "Does not fetch dependency when depending param is not part of cache key"
   (let [prescription {::data-source/fn #'echo-params
                       ::data-source/cache-deps #{:id}

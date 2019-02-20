@@ -124,7 +124,7 @@
   [prescription & [ks]]
   (resolve-deps-with prescription ks ::data-source/deps #(resolve-deps-1 (::data-source/params %1) %2)))
 
-(defn- cache-deps [{::data-source/keys [params] :as source}]
+(defn- cache-dep-params [{::data-source/keys [params] :as source}]
   (->> (data-source/cache-deps source)
        (select-keys params)
        vals
@@ -138,7 +138,7 @@
   `:pharmacist.data-source/cache-deps` in [[pharmacist.data-source]] for more
   information on cache dependencies."
   [prescription ks]
-  (resolve-deps-with prescription ks ::data-source/cache-deps (fn [source _] (cache-deps source))))
+  (resolve-deps-with prescription ks ::data-source/cache-deps (fn [source _] (data-source/cache-deps source))))
 
 (defn- dep-path [[source & path]]
   (concat [source ::result/data] path))
@@ -424,15 +424,14 @@
          (remove #(let [{::data-source/keys [params refreshing?] :as source} (get resolved %)]
                     (or (nil? source) refreshing? (dep? params))))
          (map #(vector % (get resolved %)))
-         (remove #(seq (cache-deps (second %))))
-         (map (fn [[k source]]
-                (when-let [result (cache-get k source)]
-                  {:path k
-                   :source source
-                   :result (assoc result
-                                  ::result/attempts 0
-                                  ::result/cached? true)})))
-         (filter identity))))
+         (remove #(seq (cache-dep-params (second %))))
+         (keep (fn [[k source]]
+                 (when-let [result (cache-get k source)]
+                   {:path k
+                    :source source
+                    :result (assoc result
+                                   ::result/attempts 0
+                                   ::result/cached? true)}))))))
 
 (defn- try-cache [opt ch result loaded prescription ks]
   (when-let [results (seq (load-cached (:cache opt) prescription ks))]
@@ -460,12 +459,12 @@
     {:loaded loaded :prescription prescription :ks new-ks}))
 
 (defn- expand-cache-selection [loaded prescription ks]
-  (expand-keys loaded prescription ks (keys-by loaded prescription ks ::data-source/cache-deps)))
+  (expand-keys loaded prescription ks (keys-by loaded prescription ks cache-dep-params)))
 
 (defn- expand-cache-deps-selection [loaded prescription ks]
   (let [dep-ks (->> (select-keys prescription ks)
                     vals
-                    (mapcat ::data-source/cache-deps))]
+                    (mapcat cache-dep-params))]
     (expand-keys loaded prescription ks (keys-by loaded prescription dep-ks ::data-source/deps ks))))
 
 (defn- expand-deps [loaded prescription ks]
