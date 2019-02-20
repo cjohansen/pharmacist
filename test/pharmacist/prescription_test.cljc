@@ -1887,6 +1887,24 @@
                ::result/original-result error
                ::result/retrying? false}])))))
 
+(defscenario-async "Gracefully fails when sync fetch returns lazy result that fails to realize"
+  (go
+    (is (= (-> {:data {::data-source/id ::sync-throw
+                       ::data-source/fn (fn [_] (result/success (filter #(even? %) [{}])))}}
+               sut/fill
+               (sut/select [:data])
+               results
+               <!
+               first
+               (update ::result/error dissoc :upstream))
+           {::result/success? false
+            ::result/attempts 1
+            ::result/error {:message "Fetch did not return a pharmacist result: failed to realize lazy seq result data"
+                            :type :pharmacist.error/invalid-result
+                            :reason :pharmacist.error/result-not-realizable}
+            ::result/original-result '()
+            ::result/retrying? false}))))
+
 (defscenario-async "Gracefully fails when fetch does not take a single argument"
   (go
     (let [error (ex-info "Holy moly" {})]

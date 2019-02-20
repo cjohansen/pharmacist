@@ -180,18 +180,29 @@
 (def ^:private result-not-map (result-error "not a map" :result-not-map))
 (def ^:private result-nil (result-error "nil" :result-nil))
 (def ^:private result-not-result (result-error "no :pharmacist.result/success? or :pharmacist.result/data" :not-pharmacist-result))
+(def ^:private result-not-unseqable (result-error "failed to realize lazy seq result data" :result-not-realizable))
 
 (defn- retry-delay [{::data-source/keys [retry-delays] :as source} result]
   (or (::result/retry-delay result)
       (get (vec retry-delays) (dec (min (::result/attempts source) (count retry-delays))) 0)))
 
+(defn- unseq [data]
+  (if (seq? data)
+    (into [] data)
+    data))
+
 (defn- prep-result [source result]
-  (let [result (cond
-                 (nil? result) (result/error result result-nil)
-                 (not (map? result)) (result/error result result-not-map)
-                 (and (not (contains? result ::result/success?))
-                      (not (contains? result ::result/data))) (result/error result result-not-result)
-                 :default result)]
+  (let [result (try
+                 (cond
+                   (nil? result) (result/error result result-nil)
+                   (not (map? result)) (result/error result result-not-map)
+                   (and (not (contains? result ::result/success?))
+                        (not (contains? result ::result/data))) (result/error result result-not-result)
+                   :default (if (::result/data result)
+                              (update result ::result/data unseq)
+                              result))
+                 (catch #?(:clj Throwable :cljs :default) e
+                   (result/error (::result/data result) (assoc result-not-unseqable :upstream e))))]
     (let [result (assoc result ::result/attempts (::result/attempts source))]
       (if (result/success? result)
         (if (::data-source/schema source)
@@ -350,11 +361,6 @@
        (merge prescription nested (mapvals #(dissoc % ::data-source/deps ::data-source/cache-deps) retryable))
        (restore-refreshes refresh)))
 
-(defn- unseq [data]
-  (if (seq? data)
-    (into [] data)
-    data))
-
 (defn- merge-collection-results [prescription results loaded]
   (->> results
        (filter #(-> % :source ::data-source/member-of))
@@ -372,7 +378,7 @@
    dissoc
    (->> batch-results
         (map (fn [{:keys [path source result]}]
-               [path (update result ::result/data unseq)]))
+               [path result]))
         (into {})
         (merge results)
         (merge-collection-results prescription batch-results))
