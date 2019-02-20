@@ -732,7 +732,7 @@
 
 (defscenario-async "Retrieves cached result by resolved params"
   (let [cache (atom {(data-source/cache-key {::data-source/fn #'echo-params
-                                       ::data-source/params {:dep 42}})
+                                             ::data-source/params {:dep 42}})
                      {::result/success? true
                       ::result/attempts 1
                       ::result/data {:id 333}}})
@@ -1182,13 +1182,13 @@
                      exhaust
                      <!))
            #{{:path :facilities
-               :source {::data-source/id ::get-ids
-                        ::data-source/params {:ids []}
-                        ::data-source/coll-of :facility
-                        ::data-source/deps #{}}
-               :result {::result/success? true
-                        ::result/data []
-                        ::result/attempts 1}}}))))
+              :source {::data-source/id ::get-ids
+                       ::data-source/params {:ids []}
+                       ::data-source/coll-of :facility
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/data []
+                       ::result/attempts 1}}}))))
 
 (defscenario-async "Loads nested sources from collection"
   (go
@@ -1260,16 +1260,16 @@
                      exhaust
                      <!))
            #{{:path :facilities
-               :source {::data-source/id ::get-ids
-                        ::data-source/params {:ids {:first {:facility-id 1}
-                                                    :second {:facility-id 2}}}
-                        ::data-source/coll-of :facility
-                        ::data-source/deps #{}}
-               :result {::result/success? true
-                        ::result/partial? true
-                        ::result/data {:first {:facility-id 1}
-                                       :second {:facility-id 2}}
-                        ::result/attempts 1}}
+              :source {::data-source/id ::get-ids
+                       ::data-source/params {:ids {:first {:facility-id 1}
+                                                   :second {:facility-id 2}}}
+                       ::data-source/coll-of :facility
+                       ::data-source/deps #{}}
+              :result {::result/success? true
+                       ::result/partial? true
+                       ::result/data {:first {:facility-id 1}
+                                      :second {:facility-id 2}}
+                       ::result/attempts 1}}
              {:path [:facilities :first]
               :source {::data-source/id ::echo-params
                        ::data-source/params {:some "facility"
