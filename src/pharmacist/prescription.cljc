@@ -601,7 +601,12 @@
   [filled ks]
   (filled ks))
 
-(defn- success? [sources]
+(defn success?
+  "Takes a collection of events and returns an overall success indicator for the
+  lot - `true` if every source eventually succeeded, `false` otherwise. Can
+  return true even if there are failed individual events - e.g. when a source
+  has failed, then retried successfully, it will count as an eventual success."
+  [sources]
   (->> sources
        (map (fn [{:keys [path result]}]
               [path (::result/success? result)]))
