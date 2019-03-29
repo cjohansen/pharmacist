@@ -250,13 +250,15 @@
       (a/<! (a/timeout (::data-source/delay source))))
     (let [attempts (inc (get source ::result/attempts 0))
           source (assoc source ::result/attempts attempts)
+          start (now)
+          result (a/<! (safe-take (data-source/safe-fetch source)
+                                  (get-timeout source timeout)))
           message {:source source
                    :path path
-                   :result (prep-result source (a/<! (safe-take (data-source/safe-fetch source)
-                                                                (get-timeout source timeout))))}]
+                   :result (prep-result source result)}]
       (when-not (partial? message)
         (cache-result cache message))
-      message)))
+      (update message :result assoc ::result/elapsed-time (- (now) start)))))
 
 (defn- params->deps [{::data-source/keys [original-params]} params]
   (mapcat (fn [param]

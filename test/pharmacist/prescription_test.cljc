@@ -14,17 +14,24 @@
             [pharmacist.test-helper])
   #?(:cljs (:require-macros [pharmacist.cljs-test-helper :refer [defscenario defscenario-async]])))
 
+(defn clean-result [result]
+  (dissoc result ::result/elapsed-time))
+
+(defn clean-message [m]
+  (update m :result clean-result))
+
 (defn exhaust [port]
   (go-loop [messages []]
     (if-let [msg (<! port)]
-      (recur (conj messages msg))
+      (recur (conj messages (clean-message msg)))
       messages)))
 
 (defn results [port]
   (go (->> port
            exhaust
            <!
-           (map :result))))
+           (map :result)
+           (map clean-result))))
 
 (defn sorted-results [port]
   (go (sort-by #(-> % ::result/data :id) (<! (results port)))))
@@ -241,9 +248,11 @@
 
 (defscenario-async "Fetches single data source"
   (go
-    (is (= (<! (-> (sut/fill {:data-1 {::data-source/id :some-func
-                                       ::data-source/fn #'echo-params}})
-                   (sut/select [:data-1])))
+    (is (= (-> (sut/fill {:data-1 {::data-source/id :some-func
+                                   ::data-source/fn #'echo-params}})
+               (sut/select [:data-1])
+               <!
+               clean-message)
            {:path :data-1
             :source {::data-source/id :some-func
                      ::data-source/params {}
@@ -252,10 +261,21 @@
                      ::result/attempts 1
                      ::result/data {}}}))))
 
+(defscenario-async "Annotates result with elapsed time"
+  (go
+    (is (number? (-> (sut/fill {:data-1 {::data-source/id :some-func
+                                         ::data-source/fn #'echo-params}})
+                     (sut/select [:data-1])
+                     <!
+                     :result
+                     ::result/elapsed-time)))))
+
 (defscenario-async "Infers source id from function var"
   (go
-    (is (= (<! (-> (sut/fill {:data-1 {::data-source/fn #'echo-params}})
-                   (sut/select [:data-1])))
+    (is (= (-> (sut/fill {:data-1 {::data-source/fn #'echo-params}})
+               (sut/select [:data-1])
+               <!
+               clean-message)
            {:path :data-1
             :source {::data-source/id ::echo-params
                      ::data-source/params {}
@@ -266,8 +286,10 @@
 
 (defscenario-async "Infers source id from function value"
   (go
-    (is (= (<! (-> (sut/fill {:data-1 {::data-source/fn echo-params}})
-                   (sut/select [:data-1])))
+    (is (= (-> (sut/fill {:data-1 {::data-source/fn echo-params}})
+               (sut/select [:data-1])
+               <!
+               clean-message)
            {:path :data-1
             :source {::data-source/id ::echo-params
                      ::data-source/params {}
@@ -289,8 +311,10 @@
 
 (defscenario-async "Infers source id from async function value"
   (go
-    (is (= (<! (-> (sut/fill {:data-1 {::data-source/async-fn echo-params-async}})
-                   (sut/select [:data-1])))
+    (is (= (-> (sut/fill {:data-1 {::data-source/async-fn echo-params-async}})
+               (sut/select [:data-1])
+               <!
+               clean-message)
            {:path :data-1
             :source {::data-source/id ::echo-params-async
                      ::data-source/params {}
@@ -1506,7 +1530,7 @@
                  <!
                  ::result/sources
                  first
-                 (update :result dissoc ::cache/cached-at))
+                 (update :result dissoc ::cache/cached-at ::result/elapsed-time))
              {:path :facilities
               :result {::result/attempts 0
                        ::result/data [{:facility "OK"}]
