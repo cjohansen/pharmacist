@@ -231,7 +231,7 @@
           :upstream e})))))
 
 (defn- get-timeout [{::data-source/keys [timeout]} default-timeout]
-  (let [timeout (or timeout default-timeout 5000)]
+  (let [timeout (or timeout default-timeout 30000)]
     (when (and (number? timeout) (< 0 timeout))
       timeout)))
 
