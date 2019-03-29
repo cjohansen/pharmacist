@@ -839,7 +839,7 @@
              (sut/select [:data-1])
              <!)
          (<! (timeout 10))
-         (is (= (-> @cache vals first (dissoc ::cache/cached-at))
+         (is (= (dissoc (-> @cache vals first (dissoc ::cache/cached-at)) ::result/elapsed-time)
                 {::result/success? true
                  ::result/attempts 1
                  ::result/data {:id 43}}))))))

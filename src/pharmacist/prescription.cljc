@@ -255,10 +255,12 @@
                                   (get-timeout source timeout)))
           message {:source source
                    :path path
-                   :result (prep-result source result)}]
+                   :result (assoc
+                            (prep-result source result)
+                            ::result/elapsed-time (- (now) start))}]
       (when-not (partial? message)
         (cache-result cache message))
-      (update message :result assoc ::result/elapsed-time (- (now) start)))))
+      message)))
 
 (defn- params->deps [{::data-source/keys [original-params]} params]
   (mapcat (fn [param]
