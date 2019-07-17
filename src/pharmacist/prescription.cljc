@@ -231,7 +231,7 @@
           :upstream e})))))
 
 (defn- get-timeout [{::data-source/keys [timeout]} default-timeout]
-  (let [timeout (or timeout default-timeout 30000)]
+  (let [timeout (or timeout default-timeout)]
     (when (and (number? timeout) (< 0 timeout))
       timeout)))
 
@@ -529,7 +529,7 @@
 | key        | description |
 |------------|-------------|
 | `:params`  | Initial data. Every key in this map will be available as dependencies in the prescription
-| `:timeout` | The maximum number of milliseconds to wait for a fetch to complete. Defaults to 5000
+| `:timeout` | The maximum number of milliseconds to wait for a fetch to complete. Default is no timeout.
 | `:cache`   | A map of `:get` (function) and `:put` (function) to optionally cache results, see below.
 
   ## Caching

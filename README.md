@@ -56,13 +56,13 @@ This will be the case for as long as the version is prefixed with a `0`.
 With tools.deps:
 
 ```clj
-cjohansen/pharmacist {:mvn/version "0.2019.03.30"}
+cjohansen/pharmacist {:mvn/version "0.2019.07.17"}
 ```
 
 With Leiningen:
 
 ```clj
-[cjohansen/pharmacist "0.2019.03.30"]
+[cjohansen/pharmacist "0.2019.07.17"]
 ```
 
 ## Data sources
@@ -971,3 +971,9 @@ development of this library.
 ## Integration with Datascript
 
 Pharmacist pairs very well with Datascript.
+
+## Changelog
+
+### 0.2019.07.17
+
+Changed the default timeout from 30 seconds to not being set.
