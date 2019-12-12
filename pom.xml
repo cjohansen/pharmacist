@@ -3,7 +3,7 @@
   <modelVersion>4.0.0</modelVersion>
   <groupId>cjohansen</groupId>
   <artifactId>pharmacist</artifactId>
-  <version>0.2019.07.17</version>
+  <version>0.2019.12.12</version>
   <name>pharmacist</name>
   <dependencies>
     <dependency>
@@ -42,7 +42,7 @@
   <scm>
     <connection>scm:git:git://github.com/cjohansen/pharmacist.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/cjohansen/pharmacist.git</developerConnection>
-    <tag>v0.2019.07.17</tag>
+    <tag>v0.2019.12.12</tag>
     <url>https://github.com/cjohansen/pharmacist</url>
   </scm>
 </project>
