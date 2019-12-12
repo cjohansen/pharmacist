@@ -56,16 +56,16 @@
                               :smeck (s/coll-of ::some-smeck)))
            ::some-spec))))
 
-(deftest coerce-test
+(deftest conform-test
   (testing "Gets key from output"
-    (is (= (sut/coerce {:image/url {::sut/spec string?}
+    (is (= (sut/conform {:image/url {::sut/spec string?}
                         :image/entity {::sut/spec (s/keys :req [:image/url])}}
                        {:image/url "url://ok"}
                        :image/entity)
            {:image/url "url://ok"})))
 
   (testing "Gets key from specified source"
-    (is (= (sut/coerce {:person/display-name {::sut/spec string?
+    (is (= (sut/conform {:person/display-name {::sut/spec string?
                                               ::sut/source :displayName}
                         :person/entity {::sut/spec (s/keys :req [:person/display-name])}}
                        {:displayName "Miss Piggy"}
@@ -73,7 +73,7 @@
            {:person/display-name "Miss Piggy"})))
 
   (testing "Gets key from nested source path"
-    (is (= (sut/coerce {:person/display-name {::sut/spec string?
+    (is (= (sut/conform {:person/display-name {::sut/spec string?
                                               ::sut/source [:person :name]}
                         :person/entity {::sut/spec (s/keys :req [:person/display-name])}}
                        {:person {:name "Miss Piggy"}}
@@ -81,7 +81,7 @@
            {:person/display-name "Miss Piggy"})))
 
   (testing "Gets un-namespaced keys from :req-un and :opt-un keyspecs"
-    (is (= (sut/coerce {:display-name {::sut/source :displayName}
+    (is (= (sut/conform {:display-name {::sut/source :displayName}
                         :show {}
                         :person/entity {::sut/spec (s/keys :req-un [::display-name]
                                                            :opt-un [::show])}}
@@ -92,17 +92,17 @@
             :show "Muppets"})))
 
   (testing "Does not throw then source does not exist"
-    (is (= (sut/coerce {::name {::sut/source :name}
+    (is (= (sut/conform {::name {::sut/source :name}
                         :person/entity {::sut/spec (s/keys :req [::name])}}
                        {}
                        :person/entity)
            {}))
 
-    (is (nil? (sut/coerce {:person/entity {::sut/source :body}}
+    (is (nil? (sut/conform {:person/entity {::sut/source :body}}
                           {}
                           :person/entity)))
 
-    (is (= (sut/coerce {::name {::sut/source :name}
+    (is (= (sut/conform {::name {::sut/source :name}
                         ::friend {::sut/spec (s/keys :req [::name])}
                         ::friends {::sut/source :friends
                                    ::sut/spec (s/coll-of ::friend)}
@@ -111,7 +111,7 @@
                        :person/entity)
            {}))
 
-    (is (= (sut/coerce {::name {::sut/source :name}
+    (is (= (sut/conform {::name {::sut/source :name}
                         ::friend {::sut/spec (s/keys :req [::name])}
                         ::friends {::sut/source :friends
                                    ::sut/spec (s/coll-of ::friend)}
@@ -120,8 +120,8 @@
                        :person/entity)
            {::friends []})))
 
-  (testing "Does not accidentally coerce nil refs to empty maps"
-    (is (= (sut/coerce {::name {::sut/source :name}
+  (testing "Does not accidentally conform nil refs to empty maps"
+    (is (= (sut/conform {::name {::sut/source :name}
                         ::friend {::sut/source :friend
                                   ::sut/spec (s/keys :req [::name])}
                         :person/entity {::sut/spec (s/keys :req [::friend])}}
@@ -129,15 +129,15 @@
                        :person/entity)
            {})))
 
-  (testing "Does not accidentally coerce false to nil"
-    (is (= (sut/coerce {:really? {}
+  (testing "Does not accidentally conform false to nil"
+    (is (= (sut/conform {:really? {}
                         :thing/entity {::sut/spec (s/keys :req-un [::really?])}}
                        {:really? false}
                        :thing/entity)
            {:really? false})))
 
   (testing "Infers sources from camel-cased keys"
-    (is (= (sut/coerce {:person/display-name {::sut/spec string?
+    (is (= (sut/conform {:person/display-name {::sut/spec string?
                                               ::sut/source sut/infer-camel-ns}
                         :person/entity {::sut/spec (s/keys :req [:person/display-name])}}
                        {:displayName "Miss Piggy"}
@@ -145,7 +145,7 @@
            {:person/display-name "Miss Piggy"})))
 
   (testing "Maps contents of sequences"
-    (is (= (sut/coerce {:person/name {::sut/spec string?}
+    (is (= (sut/conform {:person/name {::sut/spec string?}
                         :person/friends {::sut/spec (s/coll-of :person/entity)}
                         :person/entity {::sut/spec (s/keys :opt [:person/name :person/friends])}}
                        {:person/friends [{:person/name "Miss Piggy"}]}
@@ -153,15 +153,15 @@
            {:person/friends [{:person/name "Miss Piggy"}]})))
 
   (testing "Maps contents of sequences with un-namespaced key"
-    (is (= (sut/coerce {:name {::sut/spec string?}
+    (is (= (sut/conform {:name {::sut/spec string?}
                         :friends {::sut/spec (s/coll-of :person)}
                         :person {::sut/spec (s/keys :opt-un [::name ::friends])}}
                        {:friends [{:name "Miss Piggy"}]}
                        :person)
            {:friends [{:name "Miss Piggy"}]})))
 
-  (testing "Coerces values"
-    (is (= (sut/coerce {:person/name {::sut/spec string?
+  (testing "Conforms values"
+    (is (= (sut/conform {:person/name {::sut/spec string?
                                       ::sut/coerce #(-> % (str/split #" ") last str/lower-case keyword)}
                         :person/friends {::sut/spec (s/coll-of :person/entity)}
                         :person/entity {::sut/spec (s/keys :opt [:person/name :person/friends])}}
@@ -171,8 +171,8 @@
            {:person/name :kermit
             :person/friends [{:person/name :piggy}]})))
 
-  (testing "Coerces sequence items"
-    (is (= (sut/coerce
+  (testing "Conforms sequence items"
+    (is (= (sut/conform
             {::consumption-reading {::sut/coerce (fn [{:keys [timestamp reading-value]}]
                                                    {:timestamp (first (str/split timestamp #"T"))
                                                     :value reading-value})}
@@ -192,18 +192,18 @@
             {:timestamp "2018-09-01", :value 300}
             {:timestamp "2018-10-01", :value 85}]))))
 
-(deftest coerce-data-source-test
+(deftest conform-data-source-test
   (testing "Leaves data untouched if no schema is defined"
-    (is (= (sut/coerce-data {::data-source/id :spotify/playlist} {:id 42})
+    (is (= (sut/conform-data {::data-source/id :spotify/playlist} {:id 42})
            {:id 42})))
 
-  (testing "Coerces data with provided schema"
+  (testing "Conforms data with provided schema"
     (let [schema {:muppet/name {::sut/spec string?
                                 ::sut/source :name}
                   ::sut/entity {::sut/spec (s/keys :req [:muppet/name])}}]
-      (is (= (sut/coerce-data {::data-source/id :test/muppet
-                               ::data-source/schema schema}
-                              {:name "Animal"})
+      (is (= (sut/conform-data {::data-source/id :test/muppet
+                                ::data-source/schema schema}
+                               {:name "Animal"})
              {:muppet/name "Animal"})))))
 
 (deftest datascript-schema-test

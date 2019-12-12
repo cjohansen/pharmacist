@@ -10,7 +10,6 @@
             [pharmacist.data-source :as data-source]
             [pharmacist.prescription :as sut]
             [pharmacist.result :as result]
-            [pharmacist.schema :as schema]
             [pharmacist.test-helper])
   #?(:cljs (:require-macros [pharmacist.cljs-test-helper :refer [defscenario defscenario-async]])))
 
@@ -1089,13 +1088,14 @@
                         ::result/cached? true
                         ::result/data {:something "Cached"}}}])))))
 
-(defscenario-async "Maps result with defined schema"
+(defn namespacing-mapper [source res]
+  {:source1/some-attr (:some-attr res)})
+
+(defscenario-async "Maps result with defined fn"
   (go
     (is (= (-> {:data {::data-source/fn #'echo-params
                        ::data-source/params {:some-attr "LOL"}
-                       ::data-source/schema
-                       {:source1/some-attr {::schema/source :some-attr}
-                        ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}}
+                       ::data-source/conform namespacing-mapper}}
                sut/fill
                (sut/select [:data])
                sut/collect
@@ -1103,13 +1103,11 @@
                ::result/data)
            {:data {:source1/some-attr "LOL"}}))))
 
-(defscenario-async "Includes raw data when there is a schema"
+(defscenario-async "Includes raw data when there is mapping"
   (go
     (is (= (-> {:data {::data-source/fn #'echo-params
                        ::data-source/params {:some-attr "LOL"}
-                       ::data-source/schema
-                       {:source1/some-attr {::schema/source :some-attr}
-                        ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}}
+                       ::data-source/conform namespacing-mapper}}
                sut/fill
                (sut/select [:data])
                <!
@@ -1117,12 +1115,10 @@
                ::result/raw-data)
            {:some-attr "LOL"}))))
 
-(defscenario-async "Passes coerced data as dependencies"
+(defscenario-async "Passes mapped data as dependencies"
   (let [prescription {:data {::data-source/fn #'echo-params
                              ::data-source/params {:some-attr "LOL"}
-                             ::data-source/schema
-                             {:source1/some-attr {::schema/source :some-attr}
-                              ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
+                             ::data-source/conform namespacing-mapper}
                       :data2 {::data-source/fn #'echo-params
                               ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}]
     (go
@@ -1137,9 +1133,7 @@
 (defscenario-async "Always gets coerced data from same filled prescription"
   (let [prescription {:data {::data-source/fn #'echo-params
                              ::data-source/params {:some-attr "LOL"}
-                             ::data-source/schema
-                             {:source1/some-attr {::schema/source :some-attr}
-                              ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
+                             ::data-source/conform namespacing-mapper}
                       :data2 {::data-source/fn #'echo-params
                               ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}
         filled (sut/fill prescription)]
@@ -1157,9 +1151,7 @@
   (let [opt {:cache (cache/atom-map (atom {}))}
         prescription {:data {::data-source/fn #'echo-params
                              ::data-source/params {:some-attr "LOL"}
-                             ::data-source/schema
-                             {:source1/some-attr {::schema/source :some-attr}
-                              ::schema/entity {::schema/spec (s/keys :opt [:source1/some-attr])}}}
+                             ::data-source/conform namespacing-mapper}
                       :data2 {::data-source/fn #'echo-params
                               ::data-source/params {:input ^::data-source/dep [:data :source1/some-attr]}}}]
     (go

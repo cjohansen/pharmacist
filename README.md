@@ -515,105 +515,35 @@ functions.
 When using `atom-map` cache, you can control which params are used for cache
 keys with `:pharmacist.data-source/cache-params` as described above.
 
-## Mapping and coercion
+## Mapping result data
 
-When consuming external data, we might want to map the keys and coerce the types
-of the result set to better fit our world-view. Mapping and type-coercion is
-handled by Pharmacist schemas, which can also be used to generate specs,
-validate payloads, and generate
-[Datascript](https://github.com/tonsky/datascript) schemas.
-
-A schema specifies what parts of a data source result to extract, what data
-types to expect (enforcable through dev-time asserts), how to coerce data, and
-how to map names. It also serves as documentation of the parts of an external
-source of data your app is concerned with:
+Pharmacist exposes a hook for mapping results from fetch functions. Handling
+mapping separately from the fetch allows for pulling these concerns apart.
+Provide a function for `::data-source/conform` that takes two arguments: the
+fully resolved `source` and the fetched `result`, and that returns mapped data.
+When a conform function is used like this, Pharmacist will include the original
+data as `::result/raw-data`:
 
 ```clj
-(require '[pharmacist.data-source :as data-source]
-         '[pharmacist.schema :as schema]
-         '[clojure.spec.alpha :as s])
+(require '[pharmacist.data-source :as data-source])
 
-(defn- unqualified [m k]
-  (get m (keyword (name k))))
+(def image [{:keys [url width height]}]
+  {:image/url url
+   :image/width width
+   :image/height height})
+
+(defn playlist [source result]
+  {:playlist/id (:id result)
+   :playlist/collaborative (:collaborative result)
+   :playlist/title (:name result)
+   :playlist/images (map image (:images result))})
 
 (def playlist
   {::data-source/fn #'spotify/playlists
    ::data-source/params {:token ^::data-source/dep [::auth :access_token]
                          :id ^::data-source/dep [::playlist-id]}
-   ::data-source/schema
-   {::schema/entity {::schema/spec (s/keys :req [:playlist/id ;; 1
-                                                 :playlist/collaborative
-                                                 :playlist/title
-                                                 :playlist/images])}
-    :playlist/id {::schema/unique ::schema/identity
-                  ::schema/source unqualified} ;; 2
-    :playlist/collaborative {::schema/spec boolean?
-                             ::schema/source :collaborative}
-    :playlist/title {::schema/spec string?
-                     ::schema/source :name} ;; 3
-    :playlist/images {::schema/spec (s/coll-of :playlist/image)
-                      ::schema/source :images} ;; 4
-    :playlist/image {::schema/spec (s/keys :req [:image/url
-                                                 :image/width
-                                                 :image/height])} ;; 5
-
-    :image/url {::schema/spec string? ;; 6
-                ::schema/source :url}
-    :image/width {::schema/spec int?
-                  ::schema/source :width
-                  ::schema/coerce parse-int} ;; 7
-    :image/height {::schema/spec int?
-                   ::schema/source :height
-                   ::schema/coerce parse-int}}})
+   ::data-source/conform playlist})
 ```
-
-1. By convention, the schema is expected to define `:pharmacist.schema/entity`
-   as either a map or collection spec, and this key is used to map the root
-   data. If this convention does not suit your needs, you can implement
-   `pharmacist.schema/coerce-data` and provide another root spec, see the
-   [API docs](https://cljdoc.org/d/cjohansen/pharmacist/CURRENT/api/pharmacist.schema#coerce-data).
-2. `::schema/source` allows you to rename a key. The function will be passed the
-   current root data along with the key it is extracting (`:playlist/id`) in
-   this case. The `unqualified` function retrieves the value of `:id`. This
-   effectively renames `:id` to `:playlist/id`. `::schema/source` can also be
-   used to transform data, e.g. by parsing string data, etc.
-3. Simple key renamings can be achieved by setting `::schema/source` to a key to
-   look up in the remote data. This shows an example of mapping `:name` in the
-   API payload to `:playlist/title` in our local data.
-4. Collection specs inform Pharmacist to loop through `:images` (because of the
-   `::schema/source)` in the payload and map each one with the keys in the
-   `:playlist/image` key spec.
-5. Key specs inform Pharmacist to look up and map nested data structures. In
-   this case, each item in the `:images` collection will be mapped with the
-   three keys in the spec.
-6. A `clojure.spec.alpha` spec for `:image/url`. Provides documentation, and can
-   be used with asserts during development to verify assumptions about external
-   data.
-7. `::schema/coerce` can be set to any function that takes a single argument -
-   the value to coerce - and returns a coerced value. If you are enforcing specs
-   during development, the coercer should produce a value that is compatible
-   with the spec.
-
-With this schema in place, data from this source will be automatically mapped
-when you call `prescription/fill`. You can further utilize this schema if you
-want:
-
-```clj
-(require '[pharmacist.schema :as schema])
-
-;; Define global specs
-(schema/define-specs! playlist)
-
-;; Assert that payloads match specs in schema
-(schema/assert-payloads! playlist)
-
-;; Datascript schema
-(def ds-schema (schema/datascript-schema playlist))
-```
-
-The asserts generated by `assert-payloads!` are `clojure.spec.alpha/assert`, and
-will typically be compiled out of production code. They can be useful to detect
-incorrect mappings and/or inconsistent API responses during development.
 
 # Data begets data
 
@@ -695,55 +625,24 @@ ones from the movie:
 
 ```clj
 (defn people-urls [{::data-source/keys [params]}]
-  (result/success (map (fn [url] {:url url}) (:movie/people params))))
+  (result/success (map (fn [url] {:url url}) (:people params))))
 ```
 
 These three functions can be stitched together with a prescription. First off,
-we'll define the movie and the person, with their schemas for coercion:
+we'll define the movie and the person:
 
 ```clj
 (def prescription
   {:movie
    {::data-source/fn #'ghibli-film
-    ::data-source/params {:id ^::data-source/dep [:movie-id]}
-    ::data-source/schema
-    {::schema/entity {::schema/spec (s/keys :req [:movie/id
-                                                  :movie/title
-                                                  :movie/description
-                                                  :movie/release-date
-                                                  :movie/people])}
-     :movie/id {::schema/unique ::schema/identity
-                ::schema/spec uuid?
-                ::schema/coerce uuid
-                ::schema/source :id}
-     :movie/title {::schema/spec string?
-                   ::schema/source :title}
-     :movie/description {::schema/spec string?
-                         ::schema/source :description}
-     :movie/release-date {::schema/spec string?
-                          ::schema/source :release_date}
-     :movie/people {::schema/spec (s/coll-of string?)
-                    ::schema/source :people} ;; The collection of URLs
-     }}
+    ::data-source/params {:id ^::data-source/dep [:movie-id]}}
 
    :person
    {::data-source/fn #'ghibli-person
     ;; Depending on the URL here is not strictly necessary, but it documents
     ;; the parameter expected by the function and makes the source usable
     ;; outside of the collection as well
-    ::data-source/params {:url ^::data-source/dep [:url]}
-    ::data-source/schema
-    {::schema/entity {::schema/spec (s/keys :req [:person/id
-                                                  :person/name
-                                                  :person/age])}
-     :person/id {::schema/unique ::schema/identity
-                 ::schema/spec uuid?
-                 ::schema/coerce uuid
-                 ::schema/source :id}
-     :person/name {::schema/spec string?
-                   ::schema/source :name}
-     :person/age {::schema/spec number?
-                  ::schema/source :age}}}})
+    ::data-source/params {:url ^::data-source/dep [:url]}}})
 ```
 
 Finally, the collection source:
@@ -778,16 +677,16 @@ which looks like this:
 {::result/success? true
  ::result/sources [...]
  ::result/data
- {:movie {:movie/id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"
-          :movie/title "My Neighbour Totoro"
+ {:movie {:id "58611129-2dbc-4a81-a72f-77ddfc1b1b49"
+          :title "My Neighbour Totoro"
           ;;...
-          :movie/people
+          :people
           ["https://ghibliapi.herokuapp.com/people/986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
            ;;...
            ]}
-  :people [{:person/id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
-            :person/name "Satsuki Kusakabe"
-            :person/age "11"}
+  :people [{:id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
+            :name "Satsuki Kusakabe"
+            :age "11"}
            ;;...
            ]}}
 ```
@@ -802,9 +701,9 @@ Individual messages like the ones in `::result/sources` look like:
 ```clj
 {::result/path [:people 0]
  ::result/success? true
- ::result/data {:person/id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
-                :person/name "Satsuki Kusakabe"
-                :person/age "11"}}
+ ::result/data {:id "986faac6-67e3-4fb8-a9ee-bad077c2e7fe"
+                :name "Satsuki Kusakabe"
+                :age "11"}}
 ```
 
 If you want, you can consume these individual messages as soon as they become
@@ -973,6 +872,14 @@ development of this library.
 Pharmacist pairs very well with Datascript.
 
 ## Changelog
+
+### 0.2019.12.12
+
+Removed the explicit pharmacist.schema integration and replaced it with a
+generic `::data-source/conform` function. The schema part will be offered in a
+separate library. While schemas does offer a declarative approach to mapping, it
+has shown to become too abstract and error prone in practice - at least in its
+current form.
 
 ### 0.2019.07.17
 

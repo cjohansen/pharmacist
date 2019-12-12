@@ -205,10 +205,10 @@
                    (result/error (::result/data result) (assoc result-not-unseqable :upstream e))))]
     (let [result (assoc result ::result/attempts (::result/attempts source))]
       (if (result/success? result)
-        (if (::data-source/schema source)
+        (if-let [conform (::data-source/conform source)]
           (-> result
-              (assoc ::result/raw-data (::result/data result))
-              (update ::result/data #(schema/coerce-data source %)))
+              (update ::result/data #(conform source %))
+              (assoc ::result/raw-data (::result/data result)))
           result)
         (let [retrying? (retryable? {:source source :result result})]
           (cond-> result

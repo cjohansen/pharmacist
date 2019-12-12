@@ -1,5 +1,5 @@
 (ns pharmacist.schema
-  "Tools for mapping, coercing, and verifying data."
+  "Tools for mapping, conforming, and verifying data."
   (:require #?(:cljs [cljs.spec.alpha :as s]
                :clj [clojure.spec.alpha :as s])
             [clojure.string :as str]))
@@ -67,7 +67,7 @@
                           keyspec e))))
       v)))
 
-(defn coerce [schema data k & [default]]
+(defn conform [schema data k & [default]]
   (let [{::keys [spec] :as keyspec} (schema k)
         ks (specced-keys spec)
         collection-type (coll-of spec)]
@@ -75,22 +75,22 @@
       (seq ks) (let [val (lookup keyspec data k data)]
                  (when val
                    (->> ks
-                        (map (fn [k] [k (coerce schema val k)]))
+                        (map (fn [k] [k (conform schema val k)]))
                         (filter #(not (nil? (second %))))
                         (into {}))))
       collection-type (when-let [coll (lookup keyspec data k)]
-                        (map #(coerce schema % collection-type %) coll))
+                        (map #(conform schema % collection-type %) coll))
       :default (lookup keyspec data k default))))
 
-(defmulti coerce-data
-  "Coerces `data` according to the spec in `source`. The default implementation
-  will use the schema in `:pharmacist.data-source/schema` and start coercion of
+(defmulti conform-data
+  "Conforms `data` according to the spec in `source`. The default implementation
+  will use the schema in `:pharmacist.data-source/schema` and start conforming
   `data` from the `:pharmacist.schema/entity` key."
   (fn [source data] (:pharmacist.data-source/id source)))
 
-(defmethod coerce-data :default [source data]
+(defmethod conform-data :default [source data]
   (if-let [schema (:pharmacist.data-source/schema source)]
-    (coerce schema data ::entity)
+    (conform schema data ::entity)
     data))
 
 (def ^:private schema->ds {::identity :db.unique/identity})
@@ -145,7 +145,7 @@
 
 (def data {:name \"Wonderwoman\"})
 
-(schema/coerce schema data ::schema/entity)
+(schema/conform schema data ::schema/entity)
 ;;=> {:person/name \"Wonderwoman\"}
 ```"
   [m k]
@@ -165,7 +165,7 @@
 
 (def data {:firstName \"Wonderwoman\"})
 
-(schema/coerce schema data ::schema/entity)
+(schema/conform schema data ::schema/entity)
 ;;=> {:person/first-name \"Wonderwoman\"}
 ```"
   [m k]
