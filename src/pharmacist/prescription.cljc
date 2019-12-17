@@ -665,6 +665,6 @@
   [prescription selection & [opt]]
   (-> prescription
       (fill opt)
-      (prescription/select selection)
-      prescription/collect
+      (select selection)
+      collect
       a/<!!))
