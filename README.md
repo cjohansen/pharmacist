@@ -56,13 +56,13 @@ This will be the case for as long as the version is prefixed with a `0`.
 With tools.deps:
 
 ```clj
-cjohansen/pharmacist {:mvn/version "0.2019.12.12"}
+cjohansen/pharmacist {:mvn/version "0.2019.12.17"}
 ```
 
 With Leiningen:
 
 ```clj
-[cjohansen/pharmacist "0.2019.12.12"]
+[cjohansen/pharmacist "0.2019.12.17"]
 ```
 
 ## Data sources
@@ -879,6 +879,13 @@ development of this library.
 Pharmacist pairs very well with Datascript.
 
 ## Changelog
+
+### 0.2019.12.17
+
+Added `pharmacist.prescription/pull!`, which combines
+`pharmacist.prescription/fill`, `pharmacist.prescription/select`,
+`pharmacist.prescription/collect`, and `clojure.core.async/<!!` into one
+high-level utility..
 
 ### 0.2019.12.12
 
