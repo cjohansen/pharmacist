@@ -56,13 +56,13 @@ This will be the case for as long as the version is prefixed with a `0`.
 With tools.deps:
 
 ```clj
-cjohansen/pharmacist {:mvn/version "0.2019.12.17"}
+cjohansen/pharmacist {:mvn/version "0.2019.12.18"}
 ```
 
 With Leiningen:
 
 ```clj
-[cjohansen/pharmacist "0.2019.12.17"]
+[cjohansen/pharmacist "0.2019.12.18"]
 ```
 
 ## Data sources
@@ -880,7 +880,7 @@ Pharmacist pairs very well with Datascript.
 
 ## Changelog
 
-### 0.2019.12.17
+### 0.2019.12.18
 
 Added `pharmacist.prescription/pull!`, which combines
 `pharmacist.prescription/fill`, `pharmacist.prescription/select`,
