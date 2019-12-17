@@ -154,14 +154,12 @@ To fetch data, pass the prescription to `pharmacist.prescription/fill`, and then
 ```
 
 `fill` returns a deferred realization of your data. To consume data from it,
-call `select`, specifying the keys you
+call `select`, specifying the keys you want in the result.
 
-
-You may `select` from it
-multiple times, but it will always give you the same data back. `select` returns
-a `core.async` channel that receives a message every time a single data source
-is attempted fetched. If you'd rather get everything in one go, you can use
-`collect`:
+You may `select` from it multiple times, but it will always give you the same
+data back. `select` returns a `core.async` channel that receives a message every
+time a single data source is attempted fetched. If you'd rather get everything
+in one go, you can use `collect`:
 
 ```clj
 (require '[pharmacist.prescription :as p]
@@ -192,6 +190,15 @@ You can also fetch the whole thing synchronously:
          '[clojure.core.async :refer [<!!]])
 
 (println (<!! (p/collect (p/select (p/fill prescription) [::playlists]))))
+```
+
+Pharmacist also provides a high-level utility for this "grab 'em all" approach
+(the final map parameter will be passed to `fill`, see below):
+
+```
+(require '[pharmacist.prescription :as p])
+
+(prn (p/pull! prescription [::playlists] {:params {}}))
 ```
 
 See [the section on async vs sync fetch](#synchronous-fetches) for more

@@ -655,3 +655,16 @@
                        ::result/data (merge-results results)}
 
         :default (recur (conj results result))))))
+
+(defn pull!
+  "Fills a prescription, makes a selection, collects the results and blocks for
+  its completion. When you just want to block for the end-result, this
+  high-level utility saves you some hassle. The `prescription` and `opt`
+  arguments are passed directly to `pharmacist.prescription/fill`, and
+  `selection` is passed directly to `pharmacist.prescription/select`."
+  [prescription selection & [opt]]
+  (-> prescription
+      (fill opt)
+      (prescription/select selection)
+      prescription/collect
+      a/<!!))
