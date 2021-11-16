@@ -1,3 +1,15 @@
+# Important note
+
+I now consider this library a failed experiment. A lot of thought and effort
+went into it, and I think it solves important problems. Unfortunately, it tries
+to do too much, and in hindsight leans too much on declarative data descriptions
+that ultimately makes it hard to follow the flow.
+
+Please check out [Courier](https://github.com/cjohansen/courier), which is
+another stab at the core problem, but this time specific to HTTP, and with a
+tighter focus. I use Courier for all my HTTP requests now, and plan on
+maintaining it for the foreseeable future.
+
 # Pharmacist
 
 Pharmacist is an "inversion of control" _library_ for data access: given
