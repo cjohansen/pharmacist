@@ -207,7 +207,7 @@ You can also fetch the whole thing synchronously:
 Pharmacist also provides a high-level utility for this "grab 'em all" approach
 (the final map parameter will be passed to `fill`, see below):
 
-```
+```clj
 (require '[pharmacist.prescription :as p])
 
 (prn (p/pull! prescription [::playlists] {:params {}}))
@@ -546,7 +546,7 @@ data as `::result/raw-data`:
 ```clj
 (require '[pharmacist.data-source :as data-source])
 
-(def image [{:keys [url width height]}]
+(defn image [{:keys [url width height]}]
   {:image/url url
    :image/width width
    :image/height height})
@@ -634,7 +634,7 @@ functions to fetch movies and people:
   (let [res (http/get (:url params)
                       {:throw-exceptions false})]
     (if (http/success? res)
-      (response/success (:body %))
+      (response/success (:body res))
       (response/failure {:error "Failed to fetch person"}))))
 ```
 
@@ -690,7 +690,7 @@ Now we can fetch My Neighbour Totoro with all of its people:
 `collect` returns a `clojure.core.async` channel that emits a single message,
 which looks like this:
 
-```
+```clj
 (require '[pharmacist.result :as result])
 
 {::result/success? true
